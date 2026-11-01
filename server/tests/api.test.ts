@@ -64,6 +64,12 @@ test('auth, booking ownership, concurrency, legacy migration and isolated cleanu
     assert.equal((await request(normal.base,'/api/bookings','POST',slotData({id:space.id} as Space),'',randomUUID())).status,401);
     assert.equal((await request(normal.base,'/api/auth/signup','POST',{fullName:'A',email:'not-email',password:'short'})).status,400);
     assert.equal((await request(normal.base,'/api/auth/signup','POST',{fullName:'A',email:'foo@bar.org',password:'long-enough-secret'},'','', 'https://evil.example')).status,403);
+    const shortPassword=await request(normal.base,'/api/auth/signup','POST',{fullName:'Short Password',email:'six@example.org',password:'12345'});
+    assert.equal(shortPassword.status,400);
+    assert.equal(shortPassword.data.error.fieldErrors.password,'Use at least 6 characters.');
+    const sixCharacterSignup=await request(normal.base,'/api/auth/signup','POST',{fullName:'Six Characters',email:'six@example.org',password:'123456'});
+    assert.equal(sixCharacterSignup.status,201);
+    assert.equal((await request(normal.base,'/api/auth/signin','POST',{email:'six@example.org',password:'123456'})).status,200);
     const first=await signup(normal.base,'First@Example.ORG','First User');assert.equal(first.status,201);
     assert.equal(first.data.user.email,'first@example.org');
     const cookie1=first.cookie;

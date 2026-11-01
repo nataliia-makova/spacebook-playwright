@@ -1,7 +1,7 @@
 import React,{createContext,useContext,useEffect,useRef,useState} from 'react';
 import {Link,useLocation,useNavigate} from 'react-router-dom';
 import {DateTime} from 'luxon';
-import {signinSchema,signupSchema,TIMEZONE,type Booking,type User} from '../shared/contracts.js';
+import {MIN_PASSWORD_LENGTH,signinSchema,signupSchema,TIMEZONE,type Booking,type User} from '../shared/contracts.js';
 import {api,ApiProblem,useRead,type FieldErrors} from './http.js';
 
 type AuthValue={user:User|null;loading:boolean;error:boolean;refresh:()=>Promise<void>;setUser:(user:User|null)=>void};
@@ -24,23 +24,29 @@ export function AuthProvider({children}:{children:React.ReactNode}){
   return <AuthContext.Provider value={{user,loading,error,refresh,setUser}}>{children}</AuthContext.Provider>;
 }
 export function AccountMenu(){
-  const {user,loading,error,refresh,setUser}=useAuth();
+  const {user,error,refresh,setUser}=useAuth();
+  const navigate=useNavigate();
+  const location=useLocation();
+  const returnTo=safeReturn(location.pathname==='/auth'
+    ?new URLSearchParams(location.search).get('returnTo')
+    :location.pathname+location.search);
   const [signingOut,setSigningOut]=useState(false);
   const [message,setMessage]=useState('');
   const signout=async()=>{
     if(signingOut)return;
     setSigningOut(true);setMessage('');
-    try{await api('/api/auth/signout',{method:'POST'});setUser(null);}
+    try{await api('/api/auth/signout',{method:'POST'});setUser(null);navigate('/spaces',{replace:true});}
     catch{setMessage('Could not confirm sign out. Please try again.');}
     finally{setSigningOut(false);}
   };
   return <div className="account-access">
-    <details className="account-menu"><summary aria-label="Account menu"><span aria-hidden="true">◉</span><span>{loading?'Account':user?user.fullName:'Account'}</span></summary>
+    {user?<details className="account-menu"><summary aria-label="Account menu"><span aria-hidden="true">◉</span><span>{user.fullName}</span></summary>
       <nav aria-label="Account">
-        {user?<><Link to="/my-bookings">My Bookings</Link><button type="button" disabled={signingOut} onClick={()=>void signout()}>{signingOut?'Signing out…':'Sign out'}</button></>:<><Link to="/auth?mode=signin">Sign in</Link><Link to="/auth?mode=signup">Sign up</Link></>}
-        {error&&<button type="button" onClick={()=>void refresh()}>Retry session check</button>}
+        <Link to="/my-bookings" onClick={event=>{const menu=event.currentTarget.closest('details');if(menu)menu.open=false;}}>My Bookings</Link><button type="button" disabled={signingOut} onClick={()=>void signout()}>{signingOut?'Signing out…':'Sign out'}</button>
       </nav>
-    </details>{message&&<p role="alert" className="account-message">{message}</p>}
+    </details>:<Link className="account-trigger" aria-label="Account" title="Sign in or create an account" to={`/auth?mode=signin&returnTo=${encodeURIComponent(returnTo)}`}><span aria-hidden="true">◉</span><span>Account</span></Link>}
+    {error&&<p role="alert" className="account-message">Could not check your session. <button type="button" onClick={()=>void refresh()}>Retry session check</button></p>}
+    {message&&<p role="alert" className="account-message">{message}</p>}
   </div>;
 }
 export function safeReturn(raw:string|null):string{
@@ -81,10 +87,10 @@ export function AuthPage(){
     <p>{mode==='signin'?'Sign in to manage your bookings.':'Sign up to reserve studios and manage your bookings.'}</p>
     {user&&<p className="auth-hint">You are already signed in. <Link to={returnTo}>Continue</Link>.</p>}
     <div className="auth-switch" aria-label="Choose authentication form"><Link className={mode==='signin'?'selected':''} to={switchUrl('signin')}>Sign in</Link><Link className={mode==='signup'?'selected':''} to={switchUrl('signup')}>Sign up</Link></div>
-    <form noValidate onSubmit={e=>void submit(e)}>
+    <form className={'auth-form'+(mode==='signup'?' auth-form-signup':'')} noValidate onSubmit={e=>void submit(e)}>
       {mode==='signup'&&<div className="field"><label htmlFor="fullName">Full name</label><input id="fullName" autoComplete="name" value={name} maxLength={100} disabled={busy} aria-invalid={!!errors.fullName} aria-describedby={errors.fullName?'fullName-error':undefined} onChange={e=>setName(e.target.value)}/>{errors.fullName&&<p className="field-error" id="fullName-error">{errors.fullName}</p>}</div>}
       <div className="field"><label htmlFor="email">Email address</label><input id="email" autoComplete="email" type="email" maxLength={254} disabled={busy} value={email} aria-invalid={!!errors.email} aria-describedby={errors.email?'email-error':undefined} onChange={e=>setEmail(e.target.value)}/>{errors.email&&<p id="email-error" className="field-error">{errors.email}</p>}</div>
-      <div className="field"><label htmlFor="password">Password</label><div className="password-input"><input id="password" type={visible?'text':'password'} autoComplete={mode==='signup'?'new-password':'current-password'} disabled={busy} value={password} aria-invalid={!!errors.password} aria-describedby={errors.password?'password-error':undefined} onChange={e=>setPassword(e.target.value)}/><button type="button" onClick={()=>setVisible(!visible)} aria-label={visible?'Hide password':'Show password'}>{visible?'Hide':'Show'}</button></div>{errors.password&&<p className="field-error" id="password-error">{errors.password}</p>}{mode==='signup'&&<small className="muted">Use at least 12 characters.</small>}</div>
+      <div className="field"><label htmlFor="password">Password</label><div className="password-input"><input id="password" type={visible?'text':'password'} autoComplete={mode==='signup'?'new-password':'current-password'} disabled={busy} value={password} aria-invalid={!!errors.password} aria-describedby={errors.password?'password-error':undefined} onChange={e=>setPassword(e.target.value)}/><button type="button" onClick={()=>setVisible(!visible)} aria-label={visible?'Hide password':'Show password'}>{visible?'Hide':'Show'}</button></div>{errors.password&&<p className="field-error" id="password-error">{errors.password}</p>}{mode==='signup'&&<small className="muted">Use at least {MIN_PASSWORD_LENGTH} characters.</small>}</div>
       {mode==='signup'&&<div className="field"><label htmlFor="confirmPassword">Confirm password</label><input id="confirmPassword" type={visible?'text':'password'} autoComplete="new-password" disabled={busy} value={confirm} aria-invalid={!!errors.confirmPassword} aria-describedby={errors.confirmPassword?'confirmPassword-error':undefined} onChange={e=>setConfirm(e.target.value)}/>{errors.confirmPassword&&<p id="confirmPassword-error" className="field-error">{errors.confirmPassword}</p>}</div>}
       {message&&<div className="alert" role="alert">{message}</div>}
       <button className="primary-btn confirm" type="submit" disabled={busy}>{busy?'Please wait…':mode==='signup'?'Create account':'Sign in'}</button>
@@ -123,7 +129,9 @@ export function MyBookings(){
   ];
   return <main className="shell bookings-page"><span className="eyebrow">Your account</span><h1>My Bookings</h1><p>View and manage reservations for {user.fullName}.</p>
     {notice&&<div role="alert" className="alert">{notice} <button className="text-button" onClick={retry}>Refresh bookings</button></div>}
-    {loading?<p role="status">Loading bookings…</p>:error?<div className="read-error" role="alert"><h2>{error.status===401?'Your session expired.':'Could not load bookings.'}</h2>{error.status===401?<Link to="/auth?mode=signin&returnTo=%2Fmy-bookings">Sign in again</Link>:<button className="outline-btn" onClick={retry}>Retry</button>}</div>:!bookings.length?<div className="empty"><h2>No bookings yet.</h2><p>Find a creative space and make your first reservation.</p><Link className="primary-btn link-btn" to="/spaces">Browse spaces</Link></div>:groups.map(group=><section className="booking-group" key={group.name}><h2>{group.name} <span className="muted">({group.items.length})</span></h2>{group.items.length?<div className="booking-list">{group.items.map(b=><article key={b.id} className="booking-row"><div><h3>{b.spaceName}</h3><p>{local(b.startsAt).toFormat('dd LLL yyyy · HH:mm')}–{local(b.endsAt).toFormat('HH:mm')} · {TIMEZONE}</p><p>Ref: {b.reference} · {money(b.totalPrice)} · <strong>{b.status==='cancelled'?'Cancelled':'Confirmed'}</strong></p></div><div className="booking-row-actions"><Link className="outline-btn link-btn" to={new URL(b.confirmationUrl).pathname}>View</Link>{b.status==='confirmed'&&Date.parse(b.startsAt)>now&&<button type="button" className="danger-link" disabled={!!pending} onClick={()=>setSelected(b)}>{pending===b.id?'Cancelling…':'Cancel'}</button>}</div></article>)}</div>:<p className="muted">No {group.name.toLowerCase()} bookings.</p>}</section>)}
+    <section aria-label="Your bookings" aria-busy={loading}>
+    {loading&&!data?<p role="status">Loading bookings…</p>:error?<div className="read-error" role="alert"><h2>{error.status===401?'Your session expired.':'Could not load bookings.'}</h2>{error.status===401?<Link to="/auth?mode=signin&returnTo=%2Fmy-bookings">Sign in again</Link>:<button className="outline-btn" onClick={retry}>Retry</button>}</div>:!bookings.length?<div className="empty"><h2>No bookings yet.</h2><p>Find a creative space and make your first reservation.</p><Link className="primary-btn link-btn" to="/spaces">Browse spaces</Link></div>:groups.map(group=><section className="booking-group" key={group.name}><h2>{group.name} <span className="muted">({group.items.length})</span></h2>{group.items.length?<div className="booking-list">{group.items.map(b=><article key={b.id} className="booking-row"><div><h3>{b.spaceName}</h3><p>{local(b.startsAt).toFormat('dd LLL yyyy · HH:mm')}–{local(b.endsAt).toFormat('HH:mm')} · {TIMEZONE}</p><p>Ref: {b.reference} · {money(b.totalPrice)} · <strong>{b.status==='cancelled'?'Cancelled':'Confirmed'}</strong></p></div><div className="booking-row-actions"><Link className="outline-btn link-btn" to={new URL(b.confirmationUrl).pathname}>View</Link>{b.status==='confirmed'&&Date.parse(b.startsAt)>now&&<button type="button" className="danger-link" disabled={!!pending||loading} onClick={()=>setSelected(b)}>{pending===b.id?'Cancelling…':'Cancel'}</button>}</div></article>)}</div>:<p className="muted">No {group.name.toLowerCase()} bookings.</p>}</section>)}
+    </section>
     <dialog ref={dialog} aria-labelledby="my-cancel-title" onClose={()=>setSelected(null)}><div className="dialog-content"><h2 id="my-cancel-title">Cancel this booking?</h2><p>This releases the reserved slot. It cannot be undone.</p><div className="dialog-actions"><button type="button" className="outline-btn" onClick={()=>setSelected(null)}>Keep booking</button><button type="button" className="danger-btn" onClick={()=>void cancel()}>Yes, cancel booking</button></div></div></dialog>
   </main>;
 }

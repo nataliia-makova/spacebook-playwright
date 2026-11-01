@@ -224,8 +224,8 @@ export function createApp(db:Database, mode=config.mode) {
     });
     res.status(response.created?201:200).json({booking:response.booking});
   });
-  function authorizedBooking(req:Request):BookingRow {
-    const booking=findBookingByToken(db,req.params.token!);
+  function authorizedBooking(req:Request<{token:string}>):BookingRow {
+    const booking=findBookingByToken(db,req.params.token);
     if(booking.user_id && currentUser(db,req)?.id!==booking.user_id)throw missing();
     return booking;
   }

@@ -74,10 +74,21 @@ export function requireUser(db:Database,req:Request):User {
   if(!user)throw new AuthError(401,'AUTHENTICATION_REQUIRED','Sign in to continue.');
   return user;
 }
-export function assertSameOrigin(req:Request):void {
+export function assertSameOrigin(req:Request,settings:Pick<typeof config,'origin'|'mode'>=config):void {
   if(!['POST','PUT','PATCH','DELETE'].includes(req.method))return;
   const origin=req.headers.origin;
-  if(origin!==config.origin)throw new AuthError(403,'INVALID_ORIGIN','This request could not be verified. Refresh the page and retry.');
+  if(origin===settings.origin)return;
+  // Vite can be opened through either loopback address during local development.
+  if(settings.mode==='development'&&origin){
+    try {
+      const actual=new URL(origin),expected=new URL(settings.origin);
+      const loopback=new Set(['localhost','127.0.0.1','[::1]']);
+      if(actual.origin===origin&&expected.origin===settings.origin&&
+        loopback.has(actual.hostname)&&loopback.has(expected.hostname)&&
+        actual.protocol===expected.protocol&&actual.port===expected.port)return;
+    }catch{/* Reject malformed origins below. */}
+  }
+  throw new AuthError(403,'INVALID_ORIGIN','This request could not be verified. Refresh the page and retry.');
 }
 export function rateLimit(db:Database,req:Request,action:'signin'|'signup',email:string):void {
   // No raw email/IP retained in the throttling table.

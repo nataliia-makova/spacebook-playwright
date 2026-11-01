@@ -15,13 +15,13 @@ Keep the application small: React/Vite, TypeScript, Express, SQLite, one fronten
 | ID | Acceptance criterion |
 |---|---|
 | AUTH-01 | Unauthenticated visitors can open `/` (redirecting to `/spaces`), browse/filter spaces, open details, choose a date/duration/start time, and view availability without signing in. Public space and availability API endpoints remain public. |
-| AUTH-02 | The header presents a keyboard-operable account icon/menu. For guests it offers **Sign in** and **Sign up**; for signed-in users it offers **My Bookings** and **Sign out**. The menu reflects session changes and remains accessible at narrow widths. |
+| AUTH-02 | The header presents a keyboard-operable **Account** control. For guests it opens the shared authentication screen directly, with **Sign in** selected and **Sign up** available inside. For signed-in users it opens a menu with **My Bookings** and **Sign out**. The control reflects session changes and remains accessible at narrow widths. |
 | AUTH-03 | A guest who chooses a valid slot and activates **Book now** is sent to authentication rather than creating a booking. Their selected space, date, duration and time survive the login/signup redirect and a page reload in the same browser tab. Do not retain a password or a booking idempotency key just to redirect. |
 | AUTH-04 | After successful sign-in or sign-up from a booking flow, return to the selected space, restore the selection, and refresh availability. If the slot is no longer valid, explain why, clear the invalid time selection, and ask the user to choose another; never submit automatically after authentication. |
 | AUTH-05 | A user can start sign-in or sign-up from the main/header menu without selecting a space. After success, return to `/spaces` or a validated internal return destination. |
 | AUTH-06 | A signed-in user may browse as usual and confirm bookings without another authentication step. New bookings are owned by that account, and the server derives the booking's customer name/email from the authenticated user, not client-supplied identity fields. |
 | AUTH-07 | A successful sign-up signs the user in immediately. Refreshing the page preserves the session until sign-out, server revocation, or expiration. |
-| AUTH-08 | A user can sign out from the account menu. After sign-out, protected pages/actions no longer expose account information. Other active sessions are not automatically invalidated. |
+| AUTH-08 | A user can sign out from the account menu. After successful sign-out, return to `/spaces`, replacing the current history entry, and protected pages/actions no longer expose account information. If sign-out fails, remain on the current page and offer retry. Other active sessions are not automatically invalidated. |
 | AUTH-09 | `/my-bookings` lists **only** the signed-in user's reservations, including upcoming confirmed, past confirmed, and cancelled. Each row shows space name, venue date/time, total EUR amount, reference and status; View opens its details. Only future confirmed bookings show Cancel. |
 | AUTH-10 | Cancel opens an accessible confirmation dialog. Dismissing it does nothing; confirming calls the server's existing cancellation operation. Status updates only after a successful response or a subsequently verified read. Cancellation retries remain idempotent. |
 | AUTH-11 | A guest visiting `/my-bookings` is directed to sign in, with a safe return to that page. After a session expires, the UI shows a sign-in state, not stale private account data. |
@@ -37,7 +37,7 @@ Use **one responsive authentication screen**, `/auth`, with clearly labelled **S
 |---|---|---|---|
 | Full name | Not shown | Required | Trim leading/trailing whitespace; 1–100 characters. |
 | Email address | Required | Required | Trim and normalize to lowercase for identity; max 254 characters; same email-format rule as the existing application. Case-insensitive uniqueness in SQLite. |
-| Password | Required | Required | Sign-up: 12–128 characters; do **not** trim or silently alter the password. Sign-in: nonempty. |
+| Password | Required | Required | Sign-up: 6–128 characters; do **not** trim or silently alter the password. Sign-in: nonempty. |
 | Confirm password | Not shown | Required | Must exactly match the password. UI-only confirmation; do not store or log it. |
 | Show/hide password | Yes | Yes | Toggle visibility without changing the field value; keyboard accessible. |
 

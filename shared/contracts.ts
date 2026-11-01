@@ -42,10 +42,11 @@ export const bookingInputSchema = z.object({
   spaceId: uuidSchema, date: dateSchema, startTime: hourSchema,
   durationHours: durationSchema
 }).strict();
+export const MIN_PASSWORD_LENGTH = 6;
 export const signupSchema = z.object({
   fullName: nameSchema,
   email: emailSchema.transform(s => s.toLowerCase()),
-  password: z.string().min(12,'Use at least 12 characters.').max(128,'Use no more than 128 characters.')
+  password: z.string().min(MIN_PASSWORD_LENGTH,`Use at least ${MIN_PASSWORD_LENGTH} characters.`).max(128,'Use no more than 128 characters.')
 }).strict();
 export const signinSchema = z.object({
   email: emailSchema.transform(s => s.toLowerCase()),
