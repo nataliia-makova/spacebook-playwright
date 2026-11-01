@@ -4,6 +4,8 @@ A small full-stack creative-space booking application. Built against [the first-
 
 The release deliberately does **not** implement accounts, payments, notifications, admin screens or an automation framework.
 
+**Planned v1.1 enhancement (requirements only):** [Authentication and My Bookings](docs/authentication-my-bookings-requirements.md) covers public sign-up/sign-in, authenticated booking ownership, account sessions and a My Bookings screen. These features are **not implemented** in the current release; this document is a specification for subsequent work.
+
 ## Requirements
 
 - Node.js **22.13+** (prefer current Node 24 LTS for non-experimental `node:sqlite`), npm, and an OS with SQLite support in Node.
