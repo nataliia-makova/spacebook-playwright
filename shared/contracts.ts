@@ -33,10 +33,25 @@ export const availabilityQuerySchema = z.object({
   date: dateSchema,
   durationHours: z.coerce.number().int().min(1).max(4)
 }).strict();
-export const bookingInputSchema = z.object({
+export const legacyBookingInputSchema = z.object({
   spaceId: uuidSchema, date: dateSchema, startTime: hourSchema,
   durationHours: durationSchema, customerName: nameSchema, customerEmail: emailSchema
 }).strict();
+
+export const bookingInputSchema = z.object({
+  spaceId: uuidSchema, date: dateSchema, startTime: hourSchema,
+  durationHours: durationSchema
+}).strict();
+export const signupSchema = z.object({
+  fullName: nameSchema,
+  email: emailSchema.transform(s => s.toLowerCase()),
+  password: z.string().min(12,'Use at least 12 characters.').max(128,'Use no more than 128 characters.')
+}).strict();
+export const signinSchema = z.object({
+  email: emailSchema.transform(s => s.toLowerCase()),
+  password: z.string().min(1,'Enter your password.')
+}).strict();
+export type User = { id:string; fullName:string; email:string; createdAt:string };
 
 export type OpeningHours = z.infer<typeof openingHoursSchema>;
 export type SpaceInput = z.infer<typeof createSpaceSchema>;

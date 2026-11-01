@@ -5,14 +5,15 @@ import path from 'node:path';
 import { DateTime } from 'luxon';
 import { z } from 'zod';
 import {
-  availabilityQuerySchema, bookingInputSchema, createSpaceSchema, spacesQuerySchema, uuidSchema,
+  availabilityQuerySchema, bookingInputSchema, legacyBookingInputSchema, signupSchema, signinSchema, createSpaceSchema, spacesQuerySchema, uuidSchema,
   TIMEZONE, CURRENCY, type Booking, type Space, type Slot
 } from '../shared/contracts.js';
 import { immediate, type Database } from './db.js';
 import { config } from './config.js';
+import { AuthError, assertSameOrigin, clearSession, createUser, currentUser, rateLimit, requireUser, resetLimit, setSession, verifyCredentials } from './auth.js';
 
 type SpaceRow = { id:string; name:string; type:Space['type']; capacity:number; equipment_json:string; hourly_rate:number; opening_hours_json:string; image_url:string };
-type BookingRow = { id:string; reference:string; space_id:string; space_name:string; customer_name:string; customer_email:string; private_token:string; starts_at:string; ends_at:string; duration_hours:number; hourly_rate:number; total_price:number; status:'confirmed'|'cancelled'; created_at:string; cancelled_at:string|null };
+type BookingRow = { id:string; reference:string; space_id:string; space_name:string; customer_name:string; customer_email:string; private_token:string; starts_at:string; ends_at:string; duration_hours:number; hourly_rate:number; total_price:number; status:'confirmed'|'cancelled'; created_at:string; cancelled_at:string|null; user_id:string|null };
 type SubmitRow = { request_json:string; booking_id:string };
 
 export class HttpError extends Error {
@@ -117,6 +118,51 @@ export function createApp(db:Database, mode=config.mode) {
   const app=express();
   app.disable('x-powered-by');
   app.use('/api',express.json({limit:'20kb',strict:true}));
+  app.use('/api',(req,_res,next)=>{
+    // The isolated, explicitly enabled test-data endpoints do not use cookies.
+    if(!req.path.startsWith('/test-support/') && ['POST','PUT','PATCH','DELETE'].includes(req.method))assertSameOrigin(req);
+    next();
+  });
+  app.post('/api/auth/signup',(req,res)=>{
+    noQuery(req);
+    const input=parse(signupSchema,req.body);
+    rateLimit(db,req,'signup',input.email);
+    let user;
+    try { user=immediate(db,()=>{
+      const created=createUser(db,input.fullName,input.email,input.password);
+      setSession(db,req,res,created.id);
+      return created;
+    }); }
+    catch(err){
+      if(err instanceof Error && err.message.includes('UNIQUE constraint failed: users.email'))
+        throw new HttpError(409,'EMAIL_ALREADY_REGISTERED','An account already uses this email. Sign in instead.',{email:'An account already uses this email.'});
+      throw err;
+    }
+    resetLimit(db,req,'signup',input.email);
+    res.status(201).json({user});
+  });
+  app.post('/api/auth/signin',(req,res)=>{
+    noQuery(req);
+    const input=parse(signinSchema,req.body);
+    rateLimit(db,req,'signin',input.email);
+    const user=verifyCredentials(db,input.email,input.password);
+    if(!user)throw new AuthError(401,'INVALID_CREDENTIALS','The email or password is incorrect.');
+    setSession(db,req,res,user.id);
+    resetLimit(db,req,'signin',input.email);
+    res.json({user});
+  });
+  app.get('/api/auth/me',(req,res)=>{noQuery(req);res.json({user:requireUser(db,req)});});
+  app.post('/api/auth/signout',(req,res)=>{
+    noQuery(req);
+    if(req.body!==undefined && (typeof req.body!=='object'||req.body===null||Array.isArray(req.body)||Object.keys(req.body as object).length))throw bad('Sign out accepts no fields.');
+    clearSession(db,req,res);res.status(204).end();
+  });
+  app.get('/api/me/bookings',(req,res)=>{
+    noQuery(req);
+    const user=requireUser(db,req);
+    const rows=db.prepare('SELECT * FROM bookings WHERE user_id=? ORDER BY starts_at DESC,id').all(user.id) as BookingRow[];
+    res.json({bookings:rows.map(bookingView)});
+  });
   app.get('/api/spaces',(req,res) => {
     const query=parse(spacesQuerySchema,req.query);
     const rows=db.prepare(`SELECT * FROM spaces WHERE (? IS NULL OR type=?)
@@ -137,15 +183,27 @@ export function createApp(db:Database, mode=config.mode) {
   app.post('/api/bookings',(req,res) => {
     noQuery(req);
     const key=parse(uuidSchema,req.header('Idempotency-Key'));
+    // Preserve valid pre-migration guest submissions without permitting any new guest booking.
+    const prior=db.prepare('SELECT * FROM booking_submissions WHERE submission_key=?').get(key) as SubmitRow|undefined;
+    if(prior) {
+      const previous=findBookingById(db,prior.booking_id);
+      if(previous.user_id===null){
+        const legacy=parse(legacyBookingInputSchema,req.body);
+        if(JSON.stringify(legacy)!==prior.request_json)throw new HttpError(409,'IDEMPOTENCY_KEY_REUSED','This submission identifier belongs to another booking attempt.');
+        res.json({booking:bookingView(previous)});
+        return;
+      }
+    }
+    const user=requireUser(db,req);
     const data=parse(bookingInputSchema,req.body);
-    if (!isDate(data.date)) throw bad('Enter a valid date.','date');
-    const normalized=JSON.stringify(data);
+    const normalized=JSON.stringify({...data,userId:user.id});
     const response=immediate(db,()=>{
-      // A replay is checked before checking the clock, space or availability.
       const existing=db.prepare('SELECT * FROM booking_submissions WHERE submission_key=?').get(key) as SubmitRow|undefined;
       if (existing) {
-        if (existing.request_json!==normalized) throw new HttpError(409,'IDEMPOTENCY_KEY_REUSED','This submission identifier belongs to a different booking attempt.');
-        return {booking:bookingView(findBookingById(db,existing.booking_id)),created:false};
+        const booking=findBookingById(db,existing.booking_id);
+        if(booking.user_id!==user.id)throw missing();
+        if(existing.request_json!==normalized)throw new HttpError(409,'IDEMPOTENCY_KEY_REUSED','This submission identifier belongs to a different booking attempt.');
+        return {booking:bookingView(booking),created:false};
       }
       const space=findSpace(db,data.spaceId);
       const range=getRange(space,data.date,data.startTime,data.durationHours);
@@ -158,21 +216,26 @@ export function createApp(db:Database, mode=config.mode) {
       const token=randomBytes(24).toString('base64url');
       const createdAt=new Date().toISOString();
       db.prepare(`INSERT INTO bookings(id,reference,space_id,space_name,customer_name,customer_email,private_token,
-        starts_at,ends_at,duration_hours,hourly_rate,total_price,status,created_at,cancelled_at)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,NULL)`).run(id,reference,space.id,space.name,data.customerName,data.customerEmail,token,
-          start,end,data.durationHours,space.hourlyRate,space.hourlyRate*data.durationHours,'confirmed',createdAt);
+        starts_at,ends_at,duration_hours,hourly_rate,total_price,status,created_at,cancelled_at,user_id)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,NULL,?)`).run(id,reference,space.id,space.name,user.fullName,user.email,token,
+          start,end,data.durationHours,space.hourlyRate,space.hourlyRate*data.durationHours,'confirmed',createdAt,user.id);
       db.prepare('INSERT INTO booking_submissions(submission_key,request_json,booking_id) VALUES (?,?,?)').run(key,normalized,id);
       return {booking:bookingView(findBookingById(db,id)),created:true};
     });
     res.status(response.created?201:200).json({booking:response.booking});
   });
-  app.get('/api/bookings/:token',(req,res) => { noQuery(req);res.json({booking:bookingView(findBookingByToken(db,req.params.token!))}); });
+  function authorizedBooking(req:Request):BookingRow {
+    const booking=findBookingByToken(db,req.params.token!);
+    if(booking.user_id && currentUser(db,req)?.id!==booking.user_id)throw missing();
+    return booking;
+  }
+  app.get('/api/bookings/:token',(req,res) => { noQuery(req);res.json({booking:bookingView(authorizedBooking(req))}); });
   app.post('/api/bookings/:token/cancel',(req,res) => {
     noQuery(req);
     if (req.body !== undefined && (req.body === null || typeof req.body !== 'object' || Array.isArray(req.body) || Object.keys(req.body as object).length))
       throw bad('Cancellation does not accept additional fields.');
     const booking=immediate(db,()=>{
-      const found=findBookingByToken(db,req.params.token!);
+      const found=authorizedBooking(req);
       if (found.status==='cancelled') return found;
       if (Date.parse(found.starts_at)<=Date.now())
         throw new HttpError(409,'CANCELLATION_CLOSED','This booking has already started and cannot be cancelled.');
@@ -214,6 +277,17 @@ export function createApp(db:Database, mode=config.mode) {
     });
     res.status(204).end();
   });
+  test.delete('/users/:userId',(req,res)=>{
+    noQuery(req);
+    const id=validateId(req.params.userId!);
+    immediate(db,()=>{
+      if(db.prepare('SELECT 1 FROM bookings WHERE user_id=? LIMIT 1').get(id))
+        throw new HttpError(409,'USER_HAS_BOOKINGS','Delete this user’s bookings before deleting the account.');
+      db.prepare('DELETE FROM sessions WHERE user_id=?').run(id);
+      db.prepare('DELETE FROM users WHERE id=?').run(id);
+    });
+    res.status(204).end();
+  });
   app.use('/api/test-support',(req,res,next) => mode==='test' ? test(req,res,next) : res.status(404).json({error:{code:'NOT_FOUND',message:'This resource could not be found.'}}));
   app.use('/api',(req,res)=>res.status(404).json({error:{code:'NOT_FOUND',message:'This resource could not be found.'}}));
 
@@ -226,8 +300,9 @@ export function createApp(db:Database, mode=config.mode) {
     });
   }
   app.use((error:unknown,_req:Request,res:Response,_next:NextFunction)=>{
-    if (error instanceof HttpError) {
-      res.status(error.status).json({error:{code:error.code,message:error.message,...(error.fieldErrors?{fieldErrors:error.fieldErrors}:{})}});
+    if (error instanceof HttpError || error instanceof AuthError) {
+      const fields=error instanceof HttpError?error.fieldErrors:undefined;
+      res.status(error.status).json({error:{code:error.code,message:error.message,...(fields?{fieldErrors:fields}:{})}});
       return;
     }
     if (typeof error==='object' && error!==null && 'type' in error && typeof error.type==='string' && error.type.startsWith('entity.')) {
