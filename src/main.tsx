@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { BrowserRouter, Link, Navigate, Route, Routes, useNavigate, useParams } from 'react-router-dom';
+import { BrowserRouter, Link, Navigate, Route, Routes, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { DateTime } from 'luxon';
 import { bookingInputSchema, TIMEZONE, type Availability, type Booking, type BookingInput, type Space, spaceTypes, type Slot } from '../shared/contracts.js';
 import './styles.css';
@@ -32,20 +32,27 @@ async function api<T>(url:string,options:RequestInit={}):Promise<T>{
     throw new ApiProblem(0,'CONNECTION_ERROR','The server could not be reached or the request timed out.');
   }finally{window.clearTimeout(timeout);}
 }
-function useRead<T>(url:string|null){
+function useRead<T>(url:string|null,keepPreviousData=false){
   const [reloadId,setReloadId]=useState(0);
+  const previousUrl=useRef(url);
   const [state,setState]=useState<{data:T|null;loading:boolean;error:ApiProblem|null}>({data:null,loading:true,error:null});
   useEffect(()=>{
     if(!url){setState({data:null,loading:false,error:null});return;}
     let active=true;
-    setState({data:null,loading:true,error:null});
+    const preserveData=keepPreviousData||previousUrl.current===url;
+    previousUrl.current=url;
+    setState(previous=>({data:preserveData?previous.data:null,loading:true,error:null}));
     api<T>(url).then(data=>{if(active)setState({data,loading:false,error:null});})
       .catch((error:ApiProblem)=>{if(active)setState({data:null,loading:false,error});});
     return ()=>{active=false;};
-  },[url,reloadId]);
+  },[url,reloadId,keepPreviousData]);
   return {...state,retry:()=>setReloadId(id=>id+1)};
 }
-function Header(){return <header className="site-header"><Link to="/spaces" className="wordmark">SpaceBook</Link><nav aria-label="Main"><Link to="/spaces">Browse spaces</Link></nav></header>;}
+function Header(){
+  const {pathname}=useLocation();
+  const isBrowse=pathname==='/'||pathname.replace(/\/$/,'')==='/spaces';
+  return <header className="site-header"><Link to="/spaces" className="wordmark">SpaceBook</Link>{!isBrowse&&<nav aria-label="Main"><Link to="/spaces">Browse spaces</Link></nav>}</header>;
+}
 function Alert({children}:React.PropsWithChildren){return <div className="alert" role="alert">{children}</div>;}
 function ReadError({error,onRetry}:{error:ApiProblem;onRetry:()=>void}){
   return error.status===404||error.status===400?<NotFound embedded/>:<div className="read-error" role="alert"><h3>We couldn’t load this right now.</h3><p>{error.message}</p><button type="button" className="outline-btn" onClick={onRetry}>Retry</button></div>;
@@ -57,8 +64,21 @@ function Browse(){
   const [type,setType]=useState('');const [capacity,setCapacity]=useState('');
   const query=new URLSearchParams();if(type)query.set('type',type);if(capacity)query.set('minCapacity',capacity);
   const url=`/api/spaces${query.size?'?'+query.toString():''}`;
-  const {data,loading,error,retry}=useRead<{spaces:Space[]}>(url);
-  return <main className="browse shell"><div className="browse-heading"><span className="eyebrow">Spaces for making</span><h1>Find room for your next idea.</h1><p>Thoughtful spaces for photography, music, and conversation. Book by the hour.</p></div><div className="filters" aria-label="Filter spaces"><div className="field"><label htmlFor="type-filter">Space type</label><select id="type-filter" value={type} onChange={e=>setType(e.target.value)}><option value="">All types</option>{spaceTypes.map(t=><option key={t} value={t}>{prettyType(t)}</option>)}</select></div><div className="field"><label htmlFor="capacity-filter">Minimum capacity</label><select id="capacity-filter" value={capacity} onChange={e=>setCapacity(e.target.value)}><option value="">Any size</option>{[1,2,3,4,5,6,8,10].map(n=><option key={n} value={n}>{n}+ people</option>)}</select></div><button className="text-button" type="button" onClick={()=>{setType('');setCapacity('');}} disabled={!type&&!capacity}>Clear filters</button></div>{loading?<Spinner label="Finding spaces…"/>:error?<ReadError error={error} onRetry={retry}/>:data?.spaces.length?<><p className="results-count">{data.spaces.length} {data.spaces.length===1?'space':'spaces'} available to explore</p><div className="space-grid">{data.spaces.map(space=><SpaceCard key={space.id} space={space}/>)}</div></>:<div className="empty"><h2>No spaces match these filters.</h2><p>Try a different type or lower the minimum capacity.</p><button type="button" className="outline-btn" onClick={()=>{setType('');setCapacity('');}}>Show all spaces</button></div>}</main>;
+  const {data,loading,error,retry}=useRead<{spaces:Space[]}>(url,true);
+  return <main className="browse shell">
+    <div className="browse-heading"><span className="eyebrow">Spaces for making</span><h1>Find room for your next idea.</h1><p>Thoughtful spaces for photography, music, and conversation. Book by the hour.</p></div>
+    <div className="filters" aria-label="Filter spaces">
+      <div className="field"><label htmlFor="type-filter">Space type</label><select id="type-filter" value={type} onChange={e=>setType(e.target.value)}><option value="">All types</option>{spaceTypes.map(t=><option key={t} value={t}>{prettyType(t)}</option>)}</select></div>
+      <div className="field"><label htmlFor="capacity-filter">Minimum capacity</label><select id="capacity-filter" value={capacity} onChange={e=>setCapacity(e.target.value)}><option value="">Any size</option>{[1,2,3,4,5,6,8,10].map(n=><option key={n} value={n}>{n}+ people</option>)}</select></div>
+      <button className="text-button" type="button" onClick={()=>{setType('');setCapacity('');}} disabled={!type&&!capacity}>Clear filters</button>
+    </div>
+    <section aria-label="Space results" aria-busy={loading}>
+      {loading&&!data?<Spinner label="Finding spaces…"/>:error?<ReadError error={error} onRetry={retry}/>:<>
+        <p className="results-count" role="status">{loading?'Updating spaces…':`${data?.spaces.length??0} ${data?.spaces.length===1?'space':'spaces'} available to explore`}</p>
+        {data?.spaces.length?<div className="space-grid">{data.spaces.map(space=><SpaceCard key={space.id} space={space}/>)}</div>:<div className="empty"><h2>No spaces match these filters.</h2><p>Try a different type or lower the minimum capacity.</p><button type="button" className="outline-btn" onClick={()=>{setType('');setCapacity('');}}>Show all spaces</button></div>}
+      </>}
+    </section>
+  </main>;
 }
 
 type Pending={key:string;payload:BookingInput};
@@ -144,13 +164,17 @@ function BookingForm({space}:{space:Space}){
     }finally{setSubmitting(false);}
   };
   if(spaceMissing)return <section className="booking-panel"><NotFound embedded/></section>;
-  return <section className="booking-panel" aria-labelledby="book-heading"><h2 id="book-heading">Book this space</h2><div className="hero-rate"><strong>{money(space.hourlyRate)}</strong> <span>/ hour</span></div><form onSubmit={submit} noValidate>
+  return <section className="booking-panel" aria-labelledby="book-heading"><div className="booking-heading"><h2 id="book-heading">Book this space</h2><div className="hero-rate"><strong>{money(space.hourlyRate)}</strong> <span>/ hour</span></div></div><form onSubmit={submit} noValidate>
+    <div className="booking-fields">
     <div className="field"><label htmlFor="date">Date</label><input id="date" type="date" value={date} min={DateTime.now().setZone(TIMEZONE).toISODate()!} disabled={locked} aria-invalid={!!errors.date} aria-describedby={field('date')} onChange={e=>{setDate(e.target.value);setTime('');setErrors({});setMessage('');}}/><small className="muted">All times: {TIMEZONE}</small><FieldMessage name="date" errors={errors}/></div>
     <div className="field"><label htmlFor="durationHours">Duration</label><select id="durationHours" value={duration} disabled={locked} aria-invalid={!!errors.durationHours} aria-describedby={field('durationHours')} onChange={e=>{setDuration(Number(e.target.value));setTime('');setErrors({});setMessage('');}}>{[1,2,3,4].map(h=><option value={h} key={h}>{h} {h===1?'hour':'hours'}</option>)}</select><FieldMessage name="durationHours" errors={errors}/></div>
-    <fieldset id="startTime" tabIndex={-1} aria-describedby={field('startTime')} className="slots-field" disabled={locked}><legend>Select a time</legend>{loading?<Spinner label="Checking availability…"/>:error?<ReadError error={error} onRetry={retry}/>:!startOptions.length?<div className="slot-empty">This space is closed or has no slots that fit on this date. Try another date or duration.</div>:<div className="time-grid">{startOptions.map(start=>{const free=availableSlots.some(s=>s.startTime===start);return <button type="button" key={start} className={'time-option'+(time===start?' selected':'')} disabled={!free||locked} aria-pressed={time===start} onClick={()=>{setTime(start);setMessage('');setErrors({});setConflict(false);}} title={free?'Available':'Unavailable'}>{start}<span className="sr-only">{free?' available':' unavailable'}</span></button>;})}</div>}{errors.startTime&&<p role="alert" className="field-error" id="startTime-error">{errors.startTime}</p>}{!loading&&!error&&startOptions.length>0&&!availableSlots.length&&<p className="slot-empty">No start times are free. Try another date or shorter duration.</p>}</fieldset>
+    </div>
+    <fieldset id="startTime" tabIndex={-1} aria-describedby={field('startTime')} className="slots-field" disabled={locked}><legend>Select a time <span className="availability-status" role="status">{loading?'· Checking availability…':''}</span></legend>{!startOptions.length?<div className="slot-empty">This space is closed or has no slots that fit on this date. Try another date or duration.</div>:<div className="time-grid" aria-busy={loading}>{startOptions.map(start=>{const free=!loading&&!error&&availableSlots.some(s=>s.startTime===start);return <button type="button" key={start} className={'time-option'+(time===start?' selected':'')} disabled={!free||locked} aria-pressed={time===start} onClick={()=>{setTime(start);setMessage('');setErrors({});setConflict(false);}} title={loading?'Checking availability':free?'Available':'Unavailable'}>{start}<span className="sr-only">{loading?' checking availability':free?' available':' unavailable'}</span></button>;})}</div>}{error&&<ReadError error={error} onRetry={retry}/>}{errors.startTime&&<p role="alert" className="field-error" id="startTime-error">{errors.startTime}</p>}{!loading&&!error&&startOptions.length>0&&!availableSlots.length&&<p className="slot-empty">No start times are free. Try another date or shorter duration.</p>}</fieldset>
     <div className="selected-summary"><span>Selected time</span><div>{time?(uncertain?`${time}–${String(Number(time.slice(0,2))+duration).padStart(2,'0')}:00`:selected?`${time}–${selected.endTime}`:'Choose an available time'):'Choose an available time'}</div></div>
+    <div className="booking-fields">
     <div className="field"><label htmlFor="customerName">Full name</label><input id="customerName" autoComplete="name" type="text" maxLength={100} placeholder="e.g. Anna Kowalska" value={name} disabled={locked} aria-invalid={!!errors.customerName} aria-describedby={field('customerName')} onChange={e=>{setName(e.target.value);setErrors(old=>({...old,customerName:''}));}}/><FieldMessage name="customerName" errors={errors}/></div>
     <div className="field"><label htmlFor="customerEmail">Email</label><input id="customerEmail" autoComplete="email" type="email" maxLength={254} placeholder="e.g. you@example.com" value={email} disabled={locked} aria-invalid={!!errors.customerEmail} aria-describedby={field('customerEmail')} onChange={e=>{setEmail(e.target.value);setErrors(old=>({...old,customerEmail:''}));}}/><FieldMessage name="customerEmail" errors={errors}/></div>
+    </div>
     <div className="price-breakdown"><div><span>{money(space.hourlyRate)} × {duration} {duration===1?'hour':'hours'}</span><span>{money(space.hourlyRate*duration)}</span></div><div className="total"><strong>Total</strong><strong>{money(space.hourlyRate*duration)}</strong></div></div>
     {blockedByOther&&<Alert>An earlier booking has an uncertain result. <Link to={`/spaces/${otherPending.payload.spaceId}`}>Return to that booking attempt</Link> before making another reservation.</Alert>}
     {message&&<Alert>{message}</Alert>}{conflict&&<p className="muted">Availability has been refreshed.</p>}
@@ -173,12 +197,12 @@ function BookingDetails(){
   const [copied,setCopied]=useState(false);
   useEffect(()=>{const el=dialog.current;if(!el)return;if(dialogOpen&&!el.open)el.showModal();if(!dialogOpen&&el.open)el.close();},[dialogOpen]);
   const cancel=async()=>{if(working)return;setDialogOpen(false);setWorking(true);setCancelError('');try{await api(`/api/bookings/${token}/cancel`,{method:'POST'});retry();}catch(err){setCancelError((err as ApiProblem).status===409?'This booking has already started and cannot be cancelled.':'We couldn’t confirm the cancellation. The last confirmed status is still shown. Retry cancellation or refresh the booking status.');}finally{setWorking(false);}};
-  if(loading)return <main className="shell"><Spinner label="Loading your private booking…"/></main>;
+  if(loading&&!data)return <main className="shell"><Spinner label="Loading your private booking…"/></main>;
   if(error)return <main className="shell"><ReadError error={error} onRetry={retry}/></main>;
   if(!data)return <NotFound/>;
   const b=data.booking;const start=utcLocal(b.startsAt);const end=utcLocal(b.endsAt);
   const past=b.status==='confirmed'&&Date.parse(b.startsAt)<=Date.now();
-  return <main className="shell confirmation"><Link className="back-link" to="/spaces">← Browse spaces</Link><div className="confirmation-card"><span className="eyebrow">Your reservation</span><h1>{b.status==='cancelled'?'Booking cancelled':'Booking confirmed'}</h1><p>{b.status==='cancelled'?'The slot has been released. Your details remain here for reference.':'Your space is reserved. Keep this private link to return to your booking.'}</p><div className="reference"><span>Booking reference</span><strong>{b.reference}</strong></div><div className="booking-facts"><div><span>Space</span><strong>{b.spaceName}</strong></div><div><span>Date</span><strong>{dateLabel(start.toISODate()!)}</strong></div><div><span>Time</span><strong>{start.toFormat('HH:mm')}–{end.toFormat('HH:mm')}</strong></div><div><span>Timezone</span><strong>{b.timezone}</strong></div><div><span>Duration</span><strong>{b.durationHours} {b.durationHours===1?'hour':'hours'}</strong></div><div><span>Rate</span><strong>{money(b.hourlyRate)} / hour</strong></div><div><span>Name</span><strong>{b.customerName}</strong></div><div><span>Email</span><strong>{b.customerEmail}</strong></div><div><span>Status</span><strong className="status">{b.status==='cancelled'?'Cancelled':past?'Confirmed · Past':'Confirmed'}</strong></div><div><span>Total</span><strong>{money(b.totalPrice)}</strong></div></div><div className="booking-actions"><button type="button" className="outline-btn" onClick={async()=>{try{await navigator.clipboard.writeText(b.confirmationUrl);setCopied(true);}catch{setCopied(false);setCancelError('Could not copy automatically. Copy the URL from your browser address bar.');}}}>{copied?'Link copied':'Copy private booking link'}</button>{b.status==='confirmed'&&!past&&<button type="button" className="danger-link" disabled={working} onClick={()=>setDialogOpen(true)}>{working?'Cancelling…':'Cancel booking'}</button>}</div>{cancelError&&<Alert>{cancelError} <button className="text-button" type="button" onClick={retry}>Refresh status</button>{b.status==='confirmed'&&!past&&<button className="text-button" type="button" disabled={working} onClick={cancel}>Retry cancellation</button>}</Alert>}</div><dialog ref={dialog} aria-labelledby="cancel-title" onClose={()=>setDialogOpen(false)}><div className="dialog-content"><h2 id="cancel-title">Cancel this booking?</h2><p>This releases your reserved time. You can’t undo the cancellation.</p><div className="dialog-actions"><button type="button" className="outline-btn" onClick={()=>setDialogOpen(false)}>Keep booking</button><button type="button" className="danger-btn" onClick={cancel}>Yes, cancel booking</button></div></div></dialog></main>;
+  return <main className="shell confirmation"><Link className="back-link" to="/spaces">← Browse spaces</Link><div className="confirmation-card" aria-busy={loading}><span className="eyebrow">Your reservation</span><h1>{b.status==='cancelled'?'Booking cancelled':'Booking confirmed'}</h1><p>{b.status==='cancelled'?'The slot has been released. Your details remain here for reference.':'Your space is reserved. Keep this private link to return to your booking.'}</p><div className="reference"><span>Booking reference</span><strong>{b.reference}</strong></div><div className="booking-facts"><div><span>Space</span><strong>{b.spaceName}</strong></div><div><span>Date</span><strong>{dateLabel(start.toISODate()!)}</strong></div><div><span>Time</span><strong>{start.toFormat('HH:mm')}–{end.toFormat('HH:mm')}</strong></div><div><span>Timezone</span><strong>{b.timezone}</strong></div><div><span>Duration</span><strong>{b.durationHours} {b.durationHours===1?'hour':'hours'}</strong></div><div><span>Rate</span><strong>{money(b.hourlyRate)} / hour</strong></div><div><span>Name</span><strong>{b.customerName}</strong></div><div><span>Email</span><strong>{b.customerEmail}</strong></div><div><span>Status</span><strong className="status" role="status">{loading?'Refreshing…':b.status==='cancelled'?'Cancelled':past?'Confirmed · Past':'Confirmed'}</strong></div><div><span>Total</span><strong>{money(b.totalPrice)}</strong></div></div><div className="booking-actions"><button type="button" className="outline-btn" onClick={async()=>{try{await navigator.clipboard.writeText(b.confirmationUrl);setCopied(true);}catch{setCopied(false);setCancelError('Could not copy automatically. Copy the URL from your browser address bar.');}}}>{copied?'Link copied':'Copy private booking link'}</button>{b.status==='confirmed'&&!past&&<button type="button" className="danger-link" disabled={working||loading} onClick={()=>setDialogOpen(true)}>{working?'Cancelling…':'Cancel booking'}</button>}</div>{cancelError&&<Alert>{cancelError} <button className="text-button" type="button" onClick={retry}>Refresh status</button>{b.status==='confirmed'&&!past&&<button className="text-button" type="button" disabled={working||loading} onClick={cancel}>Retry cancellation</button>}</Alert>}</div><dialog ref={dialog} aria-labelledby="cancel-title" onClose={()=>setDialogOpen(false)}><div className="dialog-content"><h2 id="cancel-title">Cancel this booking?</h2><p>This releases your reserved time. You can’t undo the cancellation.</p><div className="dialog-actions"><button type="button" className="outline-btn" onClick={()=>setDialogOpen(false)}>Keep booking</button><button type="button" className="danger-btn" onClick={cancel}>Yes, cancel booking</button></div></div></dialog></main>;
 }
 function App(){return <BrowserRouter><Header/><Routes><Route path="/" element={<Navigate to="/spaces" replace/>}/><Route path="/spaces" element={<Browse/>}/><Route path="/spaces/:spaceId" element={<SpaceDetails/>}/><Route path="/bookings/:token" element={<BookingDetails/>}/><Route path="*" element={<NotFound/>}/></Routes></BrowserRouter>;}
 createRoot(document.getElementById('root')!).render(<React.StrictMode><App/></React.StrictMode>);
