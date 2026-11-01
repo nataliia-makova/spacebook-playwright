@@ -70,7 +70,10 @@ export function AuthPage(){
     const parsed=(mode==='signup'?signupSchema:signinSchema).safeParse(payload);
     const fieldErrors:FieldErrors={};
     if(!parsed.success)for(const issue of parsed.error.issues){const field=String(issue.path[0]);if(!fieldErrors[field])fieldErrors[field]=issue.message;}
-    if(mode==='signup'&&confirm!==password)fieldErrors.confirmPassword='Passwords must match.';
+    if(mode==='signup'){
+      if(!confirm)fieldErrors.confirmPassword='Please confirm your password.';
+      else if(confirm!==password)fieldErrors.confirmPassword='Passwords do not match.';
+    }
     if(Object.keys(fieldErrors).length){setErrors(fieldErrors);setMessage('Correct the highlighted fields.');
       requestAnimationFrame(()=>document.getElementById(['fullName','email','password','confirmPassword'].find(f=>fieldErrors[f])||'email')?.focus());return;}
     setErrors({});setMessage('');setBusy(true);
