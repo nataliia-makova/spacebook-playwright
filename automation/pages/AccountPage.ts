@@ -12,7 +12,7 @@ export class AccountPage {
   constructor(private readonly page: Page) {
     this.accountMenu = page.locator('summary[aria-label="Account menu"]');
     this.accountNavigation = page.getByRole('navigation', { name: 'Account' });
-    this.accountLink = page.getByRole('link', { name: 'Account' });
+    this.accountLink = page.getByRole('link', { name: 'Account', exact: true });
     this.myBookingsHeading = page.getByRole('heading', { name: 'My Bookings' });
     this.signInPrompt = page.getByRole('heading', { name: 'Sign in to see your bookings.' });
     this.noBookingsHeading = page.getByRole('heading', { name: 'No bookings yet.' });

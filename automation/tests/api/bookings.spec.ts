@@ -1,4 +1,3 @@
-
 import { test, expect } from '../../fixtures/guest-fixtures.js';
 
 test('SpaceBook API and test-data setup are available', async ({ request, testDataManager }) => {
