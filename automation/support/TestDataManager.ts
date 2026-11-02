@@ -1,7 +1,8 @@
 import type { APIRequestContext, BrowserContextOptions } from '@playwright/test';
-import type { Booking, Space, SpaceInput, User } from '../../shared/contracts.js';
+import type { Booking, BookingInput, Space, SpaceInput, User } from '../../shared/contracts.js';
 import { signupSchema } from '../../shared/contracts.js';
 import { AuthApi } from '../api/AuthApi.js';
+import { BookingApi } from '../api/BookingApi.js';
 import { TestSupportApi } from '../api/TestSupportApi.js';
 import { createSpaceInput, createUserInput, type SignupInput } from '../data/factories.js';
 
@@ -101,6 +102,12 @@ export class TestDataManager {
     const space = await supportApi.createSpace(input);
     this.spaces.set(space.id, space);
     return space;
+  }
+
+  async createBooking(account: TestAccount, input: BookingInput): Promise<Booking> {
+    const booking = await new BookingApi(account.request, this.appOrigin).create(input);
+    this.bookings.set(booking.id, booking);
+    return booking;
   }
 
   async cleanup(): Promise<void> {
