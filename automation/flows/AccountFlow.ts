@@ -1,10 +1,14 @@
 import { expect, test, type APIRequestContext, type APIResponse, type Page } from '@playwright/test';
+import { DateTime } from 'luxon';
 import type { ApiError, Booking, User } from '../../shared/contracts.js';
+import { CURRENCY, TIMEZONE } from '../../shared/contracts.js';
 import type { SignupInput } from '../data/factories.js';
 import { AccountPage } from '../pages/AccountPage.js';
 import { AuthPage } from '../pages/AuthPage.js';
 import { BookingDetailsPage } from '../pages/BookingDetailsPage.js';
+import { SpaceApi } from '../api/SpaceApi.js';
 import { APP_ORIGIN } from '../support/testConfig.js';
+import type { TestAccount } from '../support/TestDataManager.js';
 
 export class AccountFlow {
   constructor(private readonly page: Page) {}
@@ -176,6 +180,114 @@ export class AccountFlow {
       expect(body.error.code, 'The auth API should report an authentication requirement.')
         .toBe('AUTHENTICATION_REQUIRED');
     });
+  }
+
+  async signOutAndVerifyPrivateBookingProtection(booking: Booking, account: User): Promise<void> {
+    await test.step('Sign out and verify private booking pages are protected', async () => {
+      const privateBookingPath = await this.openOwnedBooking(booking);
+      await this.signOutAndVerifyGuestNavigation();
+      await this.verifyPrivatePagesRequireSignIn(privateBookingPath, booking, account);
+    });
+  }
+
+  async verifyBookingOwnershipAndGroups(
+    confirmedBooking: Booking,
+    cancelledBooking: Booking,
+    otherAccountBooking: Booking
+  ): Promise<void> {
+    await test.step('Open My Bookings and verify ownership and booking groups', async () => {
+      const accountPage = new AccountPage(this.page);
+      await this.page.goto('/spaces');
+      await expect(accountPage.accountName(confirmedBooking.customerName))
+        .toBeVisible();
+      await accountPage.openMyBookings();
+      await expect(accountPage.myBookingsHeading).toBeVisible();
+      await expect(accountPage.bookingGroupHeading('Upcoming', 1)).toBeVisible();
+      await expect(accountPage.bookingGroupHeading('Cancelled', 1)).toBeVisible();
+
+      await this.verifyBookingRow(accountPage, confirmedBooking, 'Upcoming', 'Confirmed');
+      await this.verifyBookingRow(accountPage, cancelledBooking, 'Cancelled', 'Cancelled');
+      await expect(
+        accountPage.bookingRow(otherAccountBooking.reference),
+        'The other account’s booking must not be visible.'
+      ).toHaveCount(0);
+    });
+  }
+
+  async cancelBookingAndVerifyAvailability(
+    booking: Booking,
+    account: TestAccount
+  ): Promise<void> {
+    await test.step('Dismiss and confirm cancellation, then verify the slot is released', async () => {
+      const accountPage = new AccountPage(this.page);
+      await this.page.goto('/spaces');
+      await expect(accountPage.accountName(booking.customerName))
+        .toBeVisible();
+      await accountPage.openMyBookings();
+      await expect(accountPage.myBookingsHeading).toBeVisible();
+      await expect(accountPage.bookingRowInGroup('Upcoming', booking.reference))
+        .toBeVisible();
+      await expect(accountPage.bookingStatus(booking.reference, 'Confirmed'))
+        .toBeVisible();
+
+      await accountPage.cancelBookingButton(booking.reference).click();
+      await expect(accountPage.cancellationDialog).toBeVisible();
+      await accountPage.keepBookingButton.click();
+      await expect(accountPage.cancellationDialog).toBeHidden();
+      await expect(accountPage.bookingStatus(booking.reference, 'Confirmed'))
+        .toBeVisible();
+
+      await accountPage.cancelBookingButton(booking.reference).click();
+      await expect(accountPage.cancellationDialog).toBeVisible();
+      await accountPage.confirmCancellationButton.click();
+      await expect(accountPage.bookingRowInGroup('Cancelled', booking.reference))
+        .toBeVisible();
+      await expect(accountPage.bookingStatus(booking.reference, 'Cancelled'))
+        .toBeVisible();
+      await expect(accountPage.bookingRowInGroup('Upcoming', booking.reference))
+        .toHaveCount(0);
+
+      await this.page.reload();
+      await expect(accountPage.bookingRowInGroup('Cancelled', booking.reference))
+        .toBeVisible();
+      await expect(accountPage.bookingStatus(booking.reference, 'Cancelled'))
+        .toBeVisible();
+
+      const localStart = DateTime.fromISO(booking.startsAt, { zone: 'utc' }).setZone(TIMEZONE);
+      const availability = await new SpaceApi(account.request).getAvailability(
+        booking.spaceId,
+        localStart.toISODate()!,
+        booking.durationHours
+      );
+      expect(
+        availability.slots.some(slot => slot.startTime === localStart.toFormat('HH:mm')),
+        'The cancelled booking’s original slot should be available again.'
+      ).toBe(true);
+    });
+  }
+
+  private async verifyBookingRow(
+    accountPage: AccountPage,
+    booking: Booking,
+    group: 'Upcoming' | 'Cancelled',
+    status: 'Confirmed' | 'Cancelled'
+  ): Promise<void> {
+    const row = accountPage.bookingRowInGroup(group, booking.reference);
+    const start = DateTime.fromISO(booking.startsAt, { zone: 'utc' }).setZone(TIMEZONE);
+    const end = DateTime.fromISO(booking.endsAt, { zone: 'utc' }).setZone(TIMEZONE);
+    const expectedDateTime = `${start.toFormat('dd LLL yyyy · HH:mm')}–${end.toFormat('HH:mm')} · ${TIMEZONE}`;
+    const expectedTotal = new Intl.NumberFormat('en-IE', {
+      style: 'currency',
+      currency: CURRENCY
+    }).format(booking.totalPrice / 100);
+
+    await expect(row, `Booking ${booking.reference} should belong in the ${group} group.`)
+      .toBeVisible();
+    await expect(row.getByRole('heading', { level: 3 })).toHaveText(booking.spaceName);
+    await expect(row).toContainText(booking.reference);
+    await expect(row).toContainText(expectedDateTime);
+    await expect(row).toContainText(expectedTotal);
+    await expect(accountPage.bookingStatus(booking.reference, status)).toBeVisible();
   }
 }
 

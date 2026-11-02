@@ -24,4 +24,18 @@ export class BookingApi {
     }
     return body.booking;
   }
+
+  async cancel(booking: Booking): Promise<Booking> {
+    const token = new URL(booking.confirmationUrl).pathname.split('/').pop();
+    if (!token) throw new Error(`Booking ${booking.id} has no private confirmation token.`);
+    const response = await this.request.post(`/api/bookings/${token}/cancel`, {
+      headers: { Origin: this.origin }
+    });
+    await expectApiStatus(response, 200, `Cancelling test booking ${booking.reference}`);
+    const body = await response.json() as { booking: Booking };
+    if (body.booking?.id !== booking.id || body.booking.status !== 'cancelled') {
+      throw new Error(`Cancelling test booking ${booking.reference} returned an invalid response.`);
+    }
+    return body.booking;
+  }
 }

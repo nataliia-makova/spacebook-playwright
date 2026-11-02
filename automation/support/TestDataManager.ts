@@ -110,6 +110,12 @@ export class TestDataManager {
     return booking;
   }
 
+  async cancelBooking(account: TestAccount, booking: Booking): Promise<Booking> {
+    const cancelled = await new BookingApi(account.request, this.appOrigin).cancel(booking);
+    this.bookings.set(cancelled.id, cancelled);
+    return cancelled;
+  }
+
   async cleanup(): Promise<void> {
     const errors: Error[] = [];
     const attempt = async (label: string, operation: () => Promise<void>) => {
