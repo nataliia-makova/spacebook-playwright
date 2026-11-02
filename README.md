@@ -67,6 +67,14 @@ The test-only application endpoints exist only with `APP_ENV=test`:
 
 They always return `404` outside test mode; switching on generic frontend dev mode does not enable them. Test mode refuses the default development database path. Do not run test mode against real or shared data.
 
+## Automated testing and CI
+
+Run `npx playwright install chromium` once locally, then `npx playwright test`. Playwright starts the frontend and backend itself in test mode and resets only the disposable `data/e2e.sqlite` database. It runs the `chromium` browser UI project and the `api` project.
+
+GitHub Actions runs on pushes to `main` and `feat/playwright-framework`, pull requests targeting `main`, and manual dispatch. The job installs dependencies with `npm ci`, runs type-checking, backend tests and the build, installs Chromium with its system dependencies, then runs Playwright with one worker. Results and failure details appear in the repository's **Actions** tab. To inspect a failed run, open the failed Playwright step's logs; to investigate locally, rerun `npx playwright test --workers=1` and inspect `automation/playwright-report` or open a failure trace with `npx playwright show-trace <path-to-trace.zip>`.
+
+Chromium is the only browser in this initial portfolio release to keep CI focused and reproducible; cross-browser coverage is not part of this milestone. CI retains its job logs but does not upload reports, traces, or screenshots because they can contain private booking URLs, cookies, or request data.
+
 ### Normal API
 
 | Method | Path | Purpose |
