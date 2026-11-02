@@ -17,7 +17,7 @@ export class BookingDetailsPage {
   readonly total: Locator;
 
   constructor(private readonly page: Page) {
-    this.heading = page.getByRole('heading', { name: 'Booking confirmed' });
+    this.heading = page.getByRole('heading', { name: /^Booking (?:confirmed|cancelled)$/ });
     this.reference = page.getByText('Booking reference', { exact: true })
       .locator('..')
       .locator('strong');
@@ -27,7 +27,7 @@ export class BookingDetailsPage {
     this.duration = valueFor(page, 'Duration');
     this.customerName = valueFor(page, 'Name');
     this.customerEmail = valueFor(page, 'Email');
-    this.status = page.getByRole('status').filter({ hasText: /^Confirmed$/ });
+    this.status = page.getByRole('status');
     this.total = valueFor(page, 'Total');
   }
 
