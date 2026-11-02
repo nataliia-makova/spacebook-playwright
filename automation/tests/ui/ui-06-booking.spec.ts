@@ -36,7 +36,13 @@ test('UI-06: signed-in customer creates a booking with correct details', async (
   await expect(page.getByRole('status').filter({ hasText: /^Confirmed$/ })).toBeVisible();
   await expect(page.getByText('€80', { exact: true })).toBeVisible();
 
-  await page.reload();
+  await expect(page).toHaveURL(/\/bookings\/[^/?#]+$/);
+  const bookingUrl = page.url();
+
+  await page.reload({ waitUntil: 'domcontentloaded' });
+
+  await expect(page).toHaveURL(bookingUrl);
+  await expect(page.getByRole('heading', { name: 'Booking confirmed' })).toBeVisible();
 
   await expect(page.getByRole('heading', { name: 'Booking confirmed' })).toBeVisible();
   await expect(page.locator('.reference strong')).toHaveText(bookingReference);
