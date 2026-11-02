@@ -2,6 +2,7 @@ import { test as guestTest, expect } from './guest-fixtures.js';
 import { TestDataManager, type TestAccount } from '../support/TestDataManager.js';
 import { BookingFlow, type BookingScenario } from '../flows/BookingFlow.js';
 import { AccountFlow } from '../flows/AccountFlow.js';
+import { MyBookingsFlow } from '../flows/MyBookingsFlow.js';
 import type { Booking } from '../../shared/contracts.js';
 import { createSpaceInput, futureBookingDate } from '../data/factories.js';
 import { TIMEZONE } from '../../shared/contracts.js';
@@ -18,6 +19,7 @@ type Fixtures = {
   bookingFlow: BookingFlow;
   bookingScenario: BookingScenario;
   accountFlow: AccountFlow;
+  myBookingsFlow: MyBookingsFlow;
   privateBooking: Booking;
   bookingOwnershipScenario: BookingOwnershipScenario;
 };
@@ -48,6 +50,9 @@ export const test = guestTest.extend<Fixtures>({
   },
   accountFlow: async ({ page }, use) => {
     await use(new AccountFlow(page));
+  },
+  myBookingsFlow: async ({ page }, use) => {
+    await use(new MyBookingsFlow(page));
   },
   privateBooking: async ({ account, testDataManager }, use) => {
     const space = await testDataManager.createSpace();

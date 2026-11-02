@@ -13,15 +13,26 @@ export type CatalogScenario = {
 export class SpaceCatalogFlow {
   constructor(private readonly page: Page) {}
 
-  async filterByTypeAndCapacity(scenario: CatalogScenario): Promise<void> {
-    await test.step('Filter the space catalog by type and capacity as a guest', async () => {
+  async openCatalog(): Promise<void> {
+    await test.step('Open the space catalog as a guest', async () => {
       const catalog = new SpaceCatalogPage(this.page);
       await catalog.goto();
       await expect(catalog.heading).toBeVisible();
       await expect(catalog.accountLink, 'The catalog should remain available to a guest.')
         .toBeVisible();
+    });
+  }
 
+  async filterSpaces(scenario: CatalogScenario): Promise<void> {
+    await test.step('Filter spaces by type and capacity', async () => {
+      const catalog = new SpaceCatalogPage(this.page);
       await catalog.filterBy(scenario.filterType, scenario.minimumCapacity);
+    });
+  }
+
+  async verifyResults(scenario: CatalogScenario): Promise<void> {
+    await test.step('Verify the spaces matching the selected filters', async () => {
+      const catalog = new SpaceCatalogPage(this.page);
       await expect(catalog.typeFilter).toHaveValue(scenario.filterType);
       await expect(catalog.capacityFilter).toHaveValue(String(scenario.minimumCapacity));
       await expect(

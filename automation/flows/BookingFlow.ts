@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { DateTime } from 'luxon';
-import type { Booking, Space, User } from '../../shared/contracts.js';
+import type { Space, User } from '../../shared/contracts.js';
 import { CURRENCY, TIMEZONE } from '../../shared/contracts.js';
 import { BookingDetailsPage } from '../pages/BookingDetailsPage.js';
 import { SpaceDetailsPage } from '../pages/SpaceDetailsPage.js';
@@ -15,7 +15,7 @@ export type BookingScenario = {
   timezone: typeof TIMEZONE;
 };
 
-export type BookingConfirmation = {
+type BookingConfirmation = {
   reference: string;
   url: string;
 };
@@ -30,6 +30,8 @@ function formatTotal(cents: number): string {
 }
 
 export class BookingFlow {
+  private confirmation: BookingConfirmation | undefined;
+
   constructor(private readonly page: Page) {}
 
   async openSpace(scenario: BookingScenario): Promise<void> {
@@ -73,8 +75,8 @@ export class BookingFlow {
     });
   }
 
-  async confirmAndVerify(scenario: BookingScenario): Promise<BookingConfirmation> {
-    return test.step('Confirm the booking and verify its details', async () => {
+  async confirmBooking(scenario: BookingScenario): Promise<void> {
+    await test.step('Confirm the booking and verify its details', async () => {
       await this.spaceDetailsFor(scenario).confirmBooking();
 
       const bookingDetails = new BookingDetailsPage(this.page);
@@ -83,34 +85,32 @@ export class BookingFlow {
       await expect(this.page, 'The customer should be taken to the booking confirmation.')
         .toHaveURL(/\/bookings\/[^/?#]+$/);
 
-      const confirmation = {
+      this.confirmation = {
         reference: await bookingDetails.reference.innerText(),
         url: this.page.url()
       };
-      await this.verifyBookingDetails(scenario, confirmation, 'confirmed');
-      return confirmation;
+      await this.assertBookingDetails(scenario, this.confirmation);
     });
   }
 
-  async verifyConfirmationPersists(
+  async reloadPage(): Promise<void> {
+    await test.step('Reload the booking details page', async () => {
+      await this.page.reload();
+    });
+  }
+
+  async verifyBookingDetails(scenario: BookingScenario): Promise<void> {
+    await test.step('Verify the confirmed booking details', async () => {
+      if (!this.confirmation) {
+        throw new Error('Confirm the booking before verifying its persisted details.');
+      }
+      await this.assertBookingDetails(scenario, this.confirmation);
+    });
+  }
+
+  private async assertBookingDetails(
     scenario: BookingScenario,
     confirmation: BookingConfirmation
-  ): Promise<void> {
-    await test.step('Verify the booking persists after reload', async () => {
-      await new BookingDetailsPage(this.page).reload();
-      await this.verifyBookingDetails(scenario, confirmation, 'confirmed');
-    });
-  }
-
-  async confirmBookingAndVerifyPersistence(scenario: BookingScenario): Promise<void> {
-    const confirmation = await this.confirmAndVerify(scenario);
-    await this.verifyConfirmationPersists(scenario, confirmation);
-  }
-
-  async verifyBookingDetails(
-    scenario: BookingScenario,
-    confirmation: BookingConfirmation,
-    status: Booking['status']
   ): Promise<void> {
     const bookingDetails = new BookingDetailsPage(this.page);
     const expectedDate = DateTime.fromISO(scenario.date, { zone: scenario.timezone })
@@ -120,32 +120,20 @@ export class BookingFlow {
     const endTime = DateTime.fromFormat(scenario.startTime, 'HH:mm', { zone: scenario.timezone })
       .plus({ hours: scenario.durationHours })
       .toFormat('HH:mm');
-    const expectedHeading = status === 'confirmed' ? 'Booking confirmed' : 'Booking cancelled';
-    const expectedStatus = status === 'confirmed' ? /^Confirmed(?: · Past)?$/ : 'Cancelled';
-    const expectedDuration = `${scenario.durationHours} ${scenario.durationHours === 1 ? 'hour' : 'hours'}`;
+    const expectedDuration =
+      `${scenario.durationHours} ${scenario.durationHours === 1 ? 'hour' : 'hours'}`;
 
-    await expect(this.page, 'The booking URL should remain unchanged.')
-      .toHaveURL(confirmation.url);
-    await expect(bookingDetails.heading, 'The page should show the expected booking state.')
-      .toHaveText(expectedHeading);
-    await expect(bookingDetails.reference, 'The booking reference should match the created booking.')
-      .toHaveText(confirmation.reference);
-    await expect(bookingDetails.date, 'The booking date should match the selected date.')
-      .toHaveText(expectedDate);
-    await expect(bookingDetails.time, 'The booking time should match the selected slot.')
-      .toHaveText(`${scenario.startTime}–${endTime}`);
-    await expect(bookingDetails.timezone, 'The booking should use the expected timezone.')
-      .toHaveText(scenario.timezone);
-    await expect(bookingDetails.duration, 'The booking duration should match the selected duration.')
-      .toHaveText(expectedDuration);
-    await expect(bookingDetails.customerName, 'The booking should belong to the authenticated customer.')
-      .toHaveText(scenario.customer.fullName);
-    await expect(bookingDetails.customerEmail, 'The booking should show the authenticated customer email.')
-      .toHaveText(scenario.customer.email);
-    await expect(bookingDetails.status, 'The booking status should match the expected state.')
-      .toHaveText(expectedStatus);
-    await expect(bookingDetails.total, 'The booking total should match the independent expected amount.')
-      .toHaveText(expectedTotal);
+    await expect(this.page, 'The booking URL should remain unchanged.').toHaveURL(confirmation.url);
+    await expect(bookingDetails.heading).toHaveText('Booking confirmed');
+    await expect(bookingDetails.reference).toHaveText(confirmation.reference);
+    await expect(bookingDetails.date).toHaveText(expectedDate);
+    await expect(bookingDetails.time).toHaveText(`${scenario.startTime}–${endTime}`);
+    await expect(bookingDetails.timezone).toHaveText(scenario.timezone);
+    await expect(bookingDetails.duration).toHaveText(expectedDuration);
+    await expect(bookingDetails.customerName).toHaveText(scenario.customer.fullName);
+    await expect(bookingDetails.customerEmail).toHaveText(scenario.customer.email);
+    await expect(bookingDetails.status).toHaveText(/^Confirmed(?: · Past)?$/);
+    await expect(bookingDetails.total).toHaveText(expectedTotal);
   }
 
   private spaceDetailsFor(scenario: BookingScenario): SpaceDetailsPage {
