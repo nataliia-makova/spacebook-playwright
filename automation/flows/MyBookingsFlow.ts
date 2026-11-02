@@ -7,6 +7,7 @@ import { AccountPage } from '../pages/AccountPage.js';
 import type { TestAccount } from '../support/TestDataManager.js';
 
 type BookingGroup = 'Upcoming' | 'Cancelled';
+type BookingGroupCounts = Record<BookingGroup, number>;
 
 export class MyBookingsFlow {
   constructor(private readonly page: Page) {}
@@ -31,6 +32,14 @@ export class MyBookingsFlow {
         accountPage.browseSpacesLink,
         'The empty state should offer a way to browse spaces.'
       ).toBeVisible();
+    });
+  }
+
+  async verifyGroupCounts(counts: BookingGroupCounts): Promise<void> {
+    await test.step('Verify booking group counts', async () => {
+      const accountPage = new AccountPage(this.page);
+      await expect(accountPage.bookingGroupHeading('Upcoming', counts.Upcoming)).toBeVisible();
+      await expect(accountPage.bookingGroupHeading('Cancelled', counts.Cancelled)).toBeVisible();
     });
   }
 

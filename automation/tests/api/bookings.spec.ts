@@ -153,3 +153,66 @@ test('API-02: adjacent bookings on the same date are both permitted', async ({ t
   expect(DateTime.fromISO(firstBody.booking.endsAt, { zone: 'utc' }).toMillis())
     .toBeLessThanOrEqual(DateTime.fromISO(secondBody.booking.startsAt, { zone: 'utc' }).toMillis());
 });
+
+test('API-03: retrying an identical booking with the same key is idempotent', async ({ testDataManager }) => {
+  const account = await testDataManager.createAccount();
+  const space = await testDataManager.createSpace();
+  const booking: BookingInput = {
+    spaceId: space.id,
+    date: futureBookingDate(),
+    startTime: '10:00',
+    durationHours: 2
+  };
+  const idempotencyKey = randomUUID();
+
+  const firstResponse = await submitBooking(account, booking, idempotencyKey);
+  expect(firstResponse.status()).toBe(201);
+  const firstBody = await firstResponse.json() as { booking: Booking };
+
+  const retryResponse = await submitBooking(account, booking, idempotencyKey);
+  expect(retryResponse.status()).toBe(200);
+  const retryBody = await retryResponse.json() as { booking: Booking };
+
+  expect(retryBody.booking.id).toBe(firstBody.booking.id);
+  expect(retryBody.booking.reference).toBe(firstBody.booking.reference);
+  expect(retryBody.booking.confirmationUrl).toBe(firstBody.booking.confirmationUrl);
+
+  const persistedBookings = (await account.authApi.listBookings())
+    .filter(existing => existing.spaceId === space.id);
+  expect(persistedBookings).toHaveLength(1);
+  expect(persistedBookings[0]).toMatchObject({
+    id: firstBody.booking.id,
+    reference: firstBody.booking.reference,
+    confirmationUrl: firstBody.booking.confirmationUrl
+  });
+});
+
+test('API-04: reusing an idempotency key with a different payload is rejected', async ({ testDataManager }) => {
+  const account = await testDataManager.createAccount();
+  const space = await testDataManager.createSpace();
+  const booking: BookingInput = {
+    spaceId: space.id,
+    date: futureBookingDate(),
+    startTime: '10:00',
+    durationHours: 2
+  };
+  const idempotencyKey = randomUUID();
+
+  const firstResponse = await submitBooking(account, booking, idempotencyKey);
+  expect(firstResponse.status()).toBe(201);
+  const firstBody = await firstResponse.json() as { booking: Booking };
+
+  const differentPayloadResponse = await submitBooking(
+    account,
+    { ...booking, startTime: '13:00' },
+    idempotencyKey
+  );
+  expect(differentPayloadResponse.status()).toBe(409);
+  const errorBody = await differentPayloadResponse.json() as ApiError;
+  expect(errorBody.error.code).toBe('IDEMPOTENCY_KEY_REUSED');
+
+  const persistedBookings = (await account.authApi.listBookings())
+    .filter(existing => existing.spaceId === space.id);
+  expect(persistedBookings).toHaveLength(1);
+  expect(persistedBookings[0]).toEqual(firstBody.booking);
+});
