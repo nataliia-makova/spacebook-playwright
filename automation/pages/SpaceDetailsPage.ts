@@ -7,6 +7,8 @@ export class SpaceDetailsPage {
   readonly durationSelect: Locator;
   readonly totalPrice: Locator;
   readonly confirmBookingButton: Locator;
+  readonly signInToBookButton: Locator;
+  readonly bookingIdentityForGuest: Locator;
 
   constructor(
     private readonly page: Page,
@@ -19,6 +21,11 @@ export class SpaceDetailsPage {
     this.totalPrice = page.getByText('Total', { exact: true })
       .locator('..');
     this.confirmBookingButton = page.getByRole('button', { name: 'Confirm booking' });
+    this.signInToBookButton = page.getByRole('button', { name: 'Sign in to book' });
+    this.bookingIdentityForGuest = page.getByText(
+      'You can choose a time as a guest. Sign in or create an account to reserve it.',
+      { exact: true }
+    );
   }
 
   async goto(spaceId: string): Promise<void> {
