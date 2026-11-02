@@ -54,6 +54,11 @@ export class TestDataManager {
     return this.primaryAccount.storageState;
   }
 
+  async ensurePrimaryAccount(): Promise<TestAccount> {
+    const account = this.accounts.values().next().value;
+    return account?.storageState ? { ...account, storageState: account.storageState } : this.createAccount();
+  }
+
   async createAccount(input: SignupInput = createUserInput()): Promise<TestAccount> {
     const request = await this.requestFactory.newContext({
       baseURL: this.baseURL,

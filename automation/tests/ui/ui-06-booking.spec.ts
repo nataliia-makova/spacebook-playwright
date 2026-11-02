@@ -6,7 +6,8 @@ import { futureBookingDate } from '../../data/factories.js';
 import { TIMEZONE } from '../../../shared/contracts.js';
 
 test('UI-06: signed-in customer creates a booking with correct details', async ({ page, testDataManager }) => {
-  const { customer, space } = testDataManager;
+  const { customer } = testDataManager;
+  const space = await testDataManager.createSpace();
   const date = futureBookingDate();
   const expectedDate = DateTime.fromISO(date, { zone: TIMEZONE })
     .setLocale('en-GB')
