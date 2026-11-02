@@ -4,4 +4,8 @@ dist-server/
 data/*.sqlite*
 .env
 *.log
+# Playwright generated artifacts
+automation/artifacts/
+playwright-report/
+test-results/
 .DS_Store
