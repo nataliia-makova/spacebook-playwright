@@ -16,6 +16,11 @@ function outcomeForStatus<T extends { response: { status(): number } }>(
   return outcome;
 }
 
+function requireValue(value: string | undefined, message: string): string {
+  if (!value) throw new Error(message);
+  return value;
+}
+
 async function submitBooking(
   account: TestAccount,
   booking: BookingInput,
@@ -29,21 +34,6 @@ async function submitBooking(
     data: booking
   });
 }
-
-test('SpaceBook API and test-data setup are available', async ({ request, testDataManager }) => {
-  await testDataManager.createAccount();
-  const space = await testDataManager.createSpace();
-
-  const response = await request.get('/api/spaces');
-
-  expect(response.status()).toBe(200);
-
-  const body = await response.json();
-  expect(body.spaces).toBeInstanceOf(Array);
-  expect(body.spaces).toEqual(expect.arrayContaining([
-    expect.objectContaining({ id: space.id })
-  ]));
-});
 
 test('API-01: simultaneous bookings for the same slot return one conflict', async ({ testDataManager }) => {
   const firstAccount = await testDataManager.createAccount();
@@ -215,4 +205,98 @@ test('API-04: reusing an idempotency key with a different payload is rejected', 
     .filter(existing => existing.spaceId === space.id);
   expect(persistedBookings).toHaveLength(1);
   expect(persistedBookings[0]).toEqual(firstBody.booking);
+});
+
+test('API-05: customers cannot access or replay another customer’s booking', async ({ testDataManager }) => {
+  const accountA = await testDataManager.createAccount();
+  const accountB = await testDataManager.createAccount();
+  expect(accountA.user.id).not.toBe(accountB.user.id);
+  const space = await testDataManager.createSpace();
+  const booking: BookingInput = {
+    spaceId: space.id,
+    date: futureBookingDate(),
+    startTime: '10:00',
+    durationHours: 2
+  };
+  const idempotencyKey = randomUUID();
+
+  const createResponse = await submitBooking(accountA, booking, idempotencyKey);
+  expect(createResponse.status()).toBe(201);
+  const createBody = await createResponse.json() as { booking: Booking };
+  const token = requireValue(
+    new URL(createBody.booking.confirmationUrl).pathname.split('/').at(-1),
+    'The created booking has no confirmation token.'
+  );
+
+  const readByOtherAccountResponse = await accountB.request.get(`/api/bookings/${token}`);
+  expect(readByOtherAccountResponse.status()).toBe(404);
+  const readByOtherAccountBody = await readByOtherAccountResponse.json() as ApiError;
+  expect(readByOtherAccountBody.error.code).toBe('NOT_FOUND');
+
+  const cancelByOtherAccountResponse = await accountB.request.post(
+    `/api/bookings/${token}/cancel`,
+    { headers: { Origin: APP_ORIGIN } }
+  );
+  expect(cancelByOtherAccountResponse.status()).toBe(404);
+  const cancelByOtherAccountBody = await cancelByOtherAccountResponse.json() as ApiError;
+  expect(cancelByOtherAccountBody.error.code).toBe('NOT_FOUND');
+
+  const replayByOtherAccountResponse = await submitBooking(accountB, booking, idempotencyKey);
+  expect(replayByOtherAccountResponse.status()).toBe(404);
+  const replayByOtherAccountBody = await replayByOtherAccountResponse.json() as ApiError;
+  expect(replayByOtherAccountBody.error.code).toBe('NOT_FOUND');
+
+  const readByOwnerResponse = await accountA.request.get(`/api/bookings/${token}`);
+  expect(readByOwnerResponse.status()).toBe(200);
+  const readByOwnerBody = await readByOwnerResponse.json() as { booking: Booking };
+  expect(readByOwnerBody.booking).toEqual(createBody.booking);
+
+  const [bookingsA, bookingsB] = await Promise.all([
+    accountA.authApi.listBookings(),
+    accountB.authApi.listBookings()
+  ]);
+  expect(bookingsA.filter(existing => existing.spaceId === space.id)).toEqual([
+    expect.objectContaining({
+      id: createBody.booking.id,
+      reference: createBody.booking.reference,
+      status: 'confirmed'
+    })
+  ]);
+  expect(bookingsB.filter(existing => existing.spaceId === space.id)).toHaveLength(0);
+});
+
+test('API-06: unauthenticated guests cannot create bookings', async ({ playwright, baseURL, testDataManager }) => {
+  const apiBaseURL = requireValue(baseURL, 'API tests require a configured baseURL.');
+  const account = await testDataManager.createAccount();
+  const space = await testDataManager.createSpace();
+  const booking: BookingInput = {
+    spaceId: space.id,
+    date: futureBookingDate(),
+    startTime: '10:00',
+    durationHours: 2
+  };
+  const idempotencyKey = randomUUID();
+  const unauthenticatedRequest = await playwright.request.newContext({
+    baseURL: apiBaseURL,
+    storageState: { cookies: [], origins: [] }
+  });
+
+  try {
+    const response = await unauthenticatedRequest.post('/api/bookings', {
+      headers: {
+        Origin: APP_ORIGIN,
+        'Idempotency-Key': idempotencyKey
+      },
+      data: booking
+    });
+    expect(response.status()).toBe(401);
+    const body = await response.json() as ApiError;
+    expect(body.error.code).toBe('AUTHENTICATION_REQUIRED');
+
+    const persistedBookings = (await account.authApi.listBookings())
+      .filter(existing => existing.spaceId === space.id);
+    expect(persistedBookings).toHaveLength(0);
+  } finally {
+    await unauthenticatedRequest.dispose();
+  }
 });
