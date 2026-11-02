@@ -53,6 +53,15 @@ jobs:
         id: playwright
         run: npx playwright test
 
+      - name: Upload Playwright HTML report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-report
+          path: automation/playwright-report/
+          retention-days: 7
+          if-no-files-found: warn
+
       - name: Summarize Playwright diagnostics
         if: always()
         env:
