@@ -6,6 +6,10 @@ export class SpaceDetailsPage {
   readonly dateInput: Locator;
   readonly durationSelect: Locator;
   readonly totalPrice: Locator;
+  readonly bookingConflictMessage: Locator;
+  readonly availabilityRefreshedMessage: Locator;
+  readonly uncertainBookingMessage: Locator;
+  readonly retrySameBookingButton: Locator;
   readonly confirmBookingButton: Locator;
   readonly signInToBookButton: Locator;
   readonly bookingIdentityForGuest: Locator;
@@ -20,6 +24,21 @@ export class SpaceDetailsPage {
     this.durationSelect = page.getByLabel('Duration');
     this.totalPrice = page.getByText('Total', { exact: true })
       .locator('..');
+    this.bookingConflictMessage = page.getByText(
+      'Someone just reserved this slot. Choose another available time.',
+      { exact: true }
+    );
+    this.availabilityRefreshedMessage = page.getByText('Availability has been refreshed.', {
+      exact: true
+    });
+    this.uncertainBookingMessage = page.getByText(
+      'We couldn’t verify whether this booking was saved. Your details and submission identifier are preserved. Retry this same request—do not start a new booking.',
+      { exact: true }
+    );
+    this.retrySameBookingButton = page.getByRole('button', {
+      name: 'Retry same booking',
+      exact: true
+    });
     this.confirmBookingButton = page.getByRole('button', { name: 'Confirm booking' });
     this.signInToBookButton = page.getByRole('button', { name: 'Sign in to book' });
     this.bookingIdentityForGuest = page.getByText(
@@ -43,6 +62,10 @@ export class SpaceDetailsPage {
 
   startTimeButton(startTime: string): Locator {
     return this.page.getByRole('button', { name: `${startTime} available` });
+  }
+
+  unavailableStartTimeButton(startTime: string): Locator {
+    return this.page.getByRole('button', { name: `${startTime} unavailable` });
   }
 
   bookingIdentityFor(customerName: string, customerEmail: string): Locator {

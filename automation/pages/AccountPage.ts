@@ -7,6 +7,8 @@ export class AccountPage {
   readonly myBookingsHeading: Locator;
   readonly signInPrompt: Locator;
   readonly noBookingsHeading: Locator;
+  readonly bookingsLoadError: Locator;
+  readonly retryBookingsButton: Locator;
   readonly browseSpacesLink: Locator;
   readonly cancellationDialog: Locator;
   readonly keepBookingButton: Locator;
@@ -19,6 +21,8 @@ export class AccountPage {
     this.myBookingsHeading = page.getByRole('heading', { name: 'My Bookings' });
     this.signInPrompt = page.getByRole('heading', { name: 'Sign in to see your bookings.' });
     this.noBookingsHeading = page.getByRole('heading', { name: 'No bookings yet.' });
+    this.bookingsLoadError = page.getByRole('heading', { name: 'Could not load bookings.', exact: true });
+    this.retryBookingsButton = page.getByRole('button', { name: 'Retry', exact: true });
     this.browseSpacesLink = page.getByRole('link', { name: 'Browse spaces', exact: true });
     this.cancellationDialog = page.getByRole('dialog', { name: 'Cancel this booking?' });
     this.keepBookingButton = this.cancellationDialog.getByRole('button', { name: 'Keep booking' });

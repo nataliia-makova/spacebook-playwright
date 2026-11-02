@@ -21,6 +21,16 @@ export async function api<T>(url:string,options:RequestInit={}):Promise<T>{
     throw new ApiProblem(0,'CONNECTION_ERROR','The server could not be reached or the request timed out.');
   }finally{window.clearTimeout(timeout);}
 }
+const inFlightReads=new Map<string,Promise<unknown>>();
+function read<T>(url:string):Promise<T>{
+  const existing=inFlightReads.get(url);
+  if(existing)return existing as Promise<T>;
+  const request=api<T>(url);
+  inFlightReads.set(url,request);
+  const clear=()=>{if(inFlightReads.get(url)===request)inFlightReads.delete(url);};
+  void request.then(clear,clear);
+  return request;
+}
 export function useRead<T>(url:string|null,keepPreviousData=false){
   const previousUrl=useRef(url);
   const [reloadId,setReloadId]=useState(0);
@@ -31,7 +41,7 @@ export function useRead<T>(url:string|null,keepPreviousData=false){
     const preserveData=keepPreviousData||previousUrl.current===url;
     previousUrl.current=url;
     setState(previous=>({data:preserveData?previous.data:null,loading:true,error:null}));
-    api<T>(url).then(data=>{if(active)setState({data,loading:false,error:null});})
+    read<T>(url).then(data=>{if(active)setState({data,loading:false,error:null});})
       .catch((error:ApiProblem)=>{if(active)setState({data:null,loading:false,error});});
     return ()=>{active=false;};
   },[url,reloadId,keepPreviousData]);

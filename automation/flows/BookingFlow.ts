@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { DateTime } from 'luxon';
-import type { Space, User } from '../../shared/contracts.js';
+import type { Booking, Space, User } from '../../shared/contracts.js';
 import { CURRENCY, TIMEZONE } from '../../shared/contracts.js';
 import { BookingDetailsPage } from '../pages/BookingDetailsPage.js';
 import { SpaceDetailsPage } from '../pages/SpaceDetailsPage.js';
@@ -105,6 +105,15 @@ export class BookingFlow {
         throw new Error('Confirm the booking before verifying its persisted details.');
       }
       await this.assertBookingDetails(scenario, this.confirmation);
+    });
+  }
+
+  async verifyRecoveredBookingDetails(scenario: BookingScenario, booking: Booking): Promise<void> {
+    await test.step('Verify the recovered booking confirmation details', async () => {
+      await this.assertBookingDetails(scenario, {
+        reference: booking.reference,
+        url: booking.confirmationUrl
+      });
     });
   }
 
