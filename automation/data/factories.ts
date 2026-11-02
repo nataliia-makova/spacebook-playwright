@@ -8,16 +8,17 @@ export type SignupInput = {
   password: string;
 };
 
-export function createUserInput(): SignupInput {
+export function createUserInput(overrides: Partial<SignupInput> = {}): SignupInput {
   const suffix = randomUUID();
   return {
     fullName: `Playwright Customer ${suffix}`,
     email: `playwright-${suffix}@example.test`,
-    password: `Spacebook-${suffix}`
+    password: `Spacebook-${suffix}`,
+    ...overrides
   };
 }
 
-export function createSpaceInput(): SpaceInput {
+export function createSpaceInput(overrides: Partial<SpaceInput> = {}): SpaceInput {
   const openingHours: OpeningHours = {
     '1': { opensAt: '09:00', closesAt: '20:00' },
     '2': { opensAt: '09:00', closesAt: '20:00' },
@@ -34,7 +35,8 @@ export function createSpaceInput(): SpaceInput {
     capacity: 2,
     equipment: [],
     hourlyRate: 4000,
-    openingHours
+    openingHours,
+    ...overrides
   };
 }
 

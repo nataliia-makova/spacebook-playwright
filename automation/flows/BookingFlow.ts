@@ -43,8 +43,10 @@ export class BookingFlow {
         spaceDetails.mainNavigation.getByText(scenario.customer.fullName, { exact: true }),
         'The authenticated customer should be shown in the navigation.'
       ).toBeVisible();
-      await expect(spaceDetails.bookingIdentity, 'The booking should use the authenticated customer identity.')
-        .toBeVisible();
+      await expect(
+        spaceDetails.bookingIdentityFor(scenario.customer.fullName, scenario.customer.email),
+        'The booking should use the authenticated customer identity.'
+      ).toBeVisible();
     });
   }
 
@@ -147,11 +149,6 @@ export class BookingFlow {
   }
 
   private spaceDetailsFor(scenario: BookingScenario): SpaceDetailsPage {
-    return new SpaceDetailsPage(
-      this.page,
-      scenario.space.name,
-      scenario.customer.fullName,
-      scenario.customer.email
-    );
+    return new SpaceDetailsPage(this.page, scenario.space.name);
   }
 }

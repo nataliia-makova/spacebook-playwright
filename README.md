@@ -69,11 +69,11 @@ They always return `404` outside test mode; switching on generic frontend dev mo
 
 ## Automated testing and CI
 
-Run `npx playwright install chromium` once locally, then `npx playwright test`. Playwright starts the frontend and backend itself in test mode and resets only the disposable `data/e2e.sqlite` database. It runs the `chromium` browser UI project and the `api` project.
+Run `npm run lint`, then `npx playwright install chromium` once locally and `npx playwright test`. Playwright starts the frontend and backend itself in test mode and resets only the disposable `data/e2e.sqlite` database. It runs the `chromium` browser UI project and the `api` project.
 
-GitHub Actions runs on pushes to `main` and `feat/playwright-framework`, pull requests targeting `main`, and manual dispatch. The job installs dependencies with `npm ci`, runs type-checking, backend tests and the build, installs Chromium with its system dependencies, then runs Playwright with one worker. Results and failure details appear in the repository's **Actions** tab. To inspect a failed run, open the failed Playwright step's logs; to investigate locally, rerun `npx playwright test --workers=1` and inspect `automation/playwright-report` or open a failure trace with `npx playwright show-trace <path-to-trace.zip>`.
+GitHub Actions runs on pushes to `main` and `feat/playwright-framework`, pull requests targeting `main`, and manual dispatch. The job installs dependencies with `npm ci`, runs type-checking, backend tests and the build, installs Chromium with its system dependencies, then runs Playwright with one worker. Results and failure details appear in the repository's **Actions** tab. The Playwright HTML report is uploaded as the `playwright-report` artifact with 7-day retention unless a run is canceled. To inspect a failed run, open the failed Playwright step's logs or download that artifact from the run; locally, rerun `npx playwright test --workers=1` and inspect `automation/playwright-report` or open a failure trace with `npx playwright show-trace <path-to-trace.zip>`.
 
-Chromium is the only browser in this initial portfolio release to keep CI focused and reproducible; cross-browser coverage is not part of this milestone. CI retains its job logs but does not upload reports, traces, or screenshots because they can contain private booking URLs, cookies, or request data.
+Chromium is the only browser in this initial portfolio release to keep CI focused and reproducible; cross-browser coverage is not part of this milestone. HTML reports can include traces, screenshots, cookies, private booking URLs, or request data. Treat downloaded reports as sensitive and share them only with trusted repository collaborators.
 
 ### Normal API
 

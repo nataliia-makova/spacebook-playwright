@@ -19,6 +19,17 @@ export class AuthApi {
     return body.user;
   }
 
+  async signin(input: Pick<SignupInput, 'email' | 'password'>): Promise<User | undefined> {
+    const response = await this.request.post('/api/auth/signin', {
+      headers: { Origin: this.origin },
+      data: { email: input.email, password: input.password }
+    });
+    if (response.status() === 401) return undefined;
+    await expectApiStatus(response, 200, 'Signing in to discover test account data');
+    const body = await response.json() as { user: User };
+    return body.user;
+  }
+
   async listBookings(): Promise<Booking[]> {
     const response = await this.request.get('/api/me/bookings');
     await expectApiStatus(response, 200, 'Listing bookings for the test account');

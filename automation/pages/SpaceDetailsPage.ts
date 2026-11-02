@@ -5,21 +5,17 @@ export class SpaceDetailsPage {
   readonly mainNavigation: Locator;
   readonly dateInput: Locator;
   readonly durationSelect: Locator;
-  readonly bookingIdentity: Locator;
   readonly totalPrice: Locator;
   readonly confirmBookingButton: Locator;
 
   constructor(
     private readonly page: Page,
-    spaceName: string,
-    customerName: string,
-    customerEmail: string
+    spaceName: string
   ) {
     this.heading = page.getByRole('heading', { name: spaceName });
     this.mainNavigation = page.getByRole('navigation', { name: 'Main' });
     this.dateInput = page.getByLabel('Date');
     this.durationSelect = page.getByLabel('Duration');
-    this.bookingIdentity = page.getByText(`Booking for ${customerName} (${customerEmail})`);
     this.totalPrice = page.getByText('Total', { exact: true })
       .locator('..');
     this.confirmBookingButton = page.getByRole('button', { name: 'Confirm booking' });
@@ -40,6 +36,10 @@ export class SpaceDetailsPage {
 
   startTimeButton(startTime: string): Locator {
     return this.page.getByRole('button', { name: `${startTime} available` });
+  }
+
+  bookingIdentityFor(customerName: string, customerEmail: string): Locator {
+    return this.page.getByText(`Booking for ${customerName} (${customerEmail})`, { exact: true });
   }
 
   async confirmBooking(): Promise<void> {

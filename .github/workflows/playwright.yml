@@ -40,6 +40,9 @@ jobs:
       - name: Type-check
         run: npm run typecheck
 
+      - name: Lint TypeScript and Playwright tests
+        run: npm run lint
+
       - name: Run backend tests
         run: npm run test:backend
 
@@ -71,5 +74,6 @@ jobs:
             echo "### Playwright diagnostics"
             echo "- Test step outcome: **${PLAYWRIGHT_OUTCOME}**"
             echo "- Review the Playwright test step logs for failure details."
-            echo "- Reports, traces, and screenshots are not uploaded because they may contain sensitive test data."
+            echo "- The Playwright HTML report is uploaded as the \`playwright-report\` artifact for 7 days unless the run is canceled."
+            echo "- The report may contain traces, screenshots, cookies, private booking URLs, or request data; treat it as sensitive."
           } >> "$GITHUB_STEP_SUMMARY"

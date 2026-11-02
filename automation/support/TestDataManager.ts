@@ -1,5 +1,6 @@
 import type { APIRequestContext, BrowserContextOptions } from '@playwright/test';
 import type { Booking, Space, SpaceInput, User } from '../../shared/contracts.js';
+import { signupSchema } from '../../shared/contracts.js';
 import { AuthApi } from '../api/AuthApi.js';
 import { TestSupportApi } from '../api/TestSupportApi.js';
 import { createSpaceInput, createUserInput, type SignupInput } from '../data/factories.js';
@@ -8,13 +9,18 @@ type StorageState = Exclude<NonNullable<BrowserContextOptions['storageState']>, 
 type APIRequestFactory = {
   newContext(options: { baseURL: string; storageState: StorageState }): Promise<APIRequestContext>;
 };
-type TestAccount = {
+export type TestAccount = {
   user: User;
   request: APIRequestContext;
   authApi: AuthApi;
   storageState: StorageState;
+  credentials: SignupInput;
 };
-type TrackedAccount = Omit<TestAccount, 'storageState'> & {
+type TrackedAccount = {
+  credentials: SignupInput;
+  user?: User;
+  request?: APIRequestContext;
+  authApi?: AuthApi;
   storageState?: StorageState;
 };
 
@@ -33,11 +39,13 @@ export class TestDataManager {
   ) {}
 
   get primaryAccount(): TestAccount {
-    const account = this.accounts.values().next().value;
-    if (!account?.storageState) {
+    const account = [...this.accounts.values()]
+      .map(value => this.asTestAccount(value))
+      .find((value): value is TestAccount => value !== undefined);
+    if (!account) {
       throw new Error('The primary test account has not been created.');
     }
-    return { ...account, storageState: account.storageState };
+    return account;
   }
 
   get customer(): User {
@@ -55,11 +63,14 @@ export class TestDataManager {
   }
 
   async ensurePrimaryAccount(): Promise<TestAccount> {
-    const account = this.accounts.values().next().value;
-    return account?.storageState ? { ...account, storageState: account.storageState } : this.createAccount();
+    const account = [...this.accounts.values()]
+      .map(value => this.asTestAccount(value))
+      .find((value): value is TestAccount => value !== undefined);
+    return account ?? this.createAccount();
   }
 
   async createAccount(input: SignupInput = createUserInput()): Promise<TestAccount> {
+    const trackedAccount = this.trackAccountSignupRecord(input);
     const request = await this.requestFactory.newContext({
       baseURL: this.baseURL,
       storageState: { cookies: [], origins: [] }
@@ -67,12 +78,22 @@ export class TestDataManager {
     this.accountRequests.add(request);
     const authApi = new AuthApi(request, this.appOrigin);
     const user = await authApi.signup(input);
-    const account: TrackedAccount = { user, request, authApi };
-    this.accounts.set(user.id, account);
+    if (!trackedAccount) {
+      throw new Error('A successfully created test account had invalid signup data.');
+    }
+    trackedAccount.user = user;
+    trackedAccount.request = request;
+    trackedAccount.authApi = authApi;
 
     const storageState = await request.storageState();
-    account.storageState = storageState;
-    return { ...account, storageState };
+    trackedAccount.storageState = storageState;
+    const account = this.asTestAccount(trackedAccount);
+    if (!account) throw new Error('The created test account could not be returned.');
+    return account;
+  }
+
+  trackAccountSignup(input: SignupInput): void {
+    this.trackAccountSignupRecord(input);
   }
 
   async createSpace(input: SpaceInput = createSpaceInput()): Promise<Space> {
@@ -93,9 +114,26 @@ export class TestDataManager {
     };
 
     for (const account of this.accounts.values()) {
-      await attempt(`Discovering bookings for ${account.user.email}`, async () => {
-        for (const booking of await account.authApi.listBookings()) {
-          if (booking.customerEmail === account.user.email) {
+      await attempt(`Discovering bookings for ${account.credentials.email}`, async () => {
+        const request = await this.requestFactory.newContext({
+          baseURL: this.baseURL,
+          storageState: { cookies: [], origins: [] }
+        });
+        this.accountRequests.add(request);
+        const authApi = new AuthApi(request, this.appOrigin);
+        const user = await authApi.signin(account.credentials);
+        if (!user) {
+          if (account.user) {
+            throw new Error(`Could not sign in to discover bookings for ${account.user.email}.`);
+          }
+          return;
+        }
+        if (account.user && user.id !== account.user.id) {
+          throw new Error(`The signup credentials resolved to an unexpected account for ${account.credentials.email}.`);
+        }
+        account.user = user;
+        for (const booking of await authApi.listBookings()) {
+          if (booking.customerEmail === user.email) {
             this.bookings.set(booking.id, booking);
           }
         }
@@ -115,9 +153,11 @@ export class TestDataManager {
       });
     }
     for (const account of this.accounts.values()) {
-      await attempt(`Deleting account ${account.user.id}`, async () => {
+      const user = account.user;
+      if (!user) continue;
+      await attempt(`Deleting account ${user.id}`, async () => {
         const supportApi = await this.getTestSupportApi();
-        await supportApi.deleteUser(account.user.id);
+        await supportApi.deleteUser(user.id);
       });
     }
 
@@ -144,5 +184,35 @@ export class TestDataManager {
       this.testSupportApi = new TestSupportApi(request);
     }
     return this.testSupportApi;
+  }
+
+  private trackAccountSignupRecord(input: SignupInput): TrackedAccount | undefined {
+    const parsed = signupSchema.safeParse(input);
+    if (!parsed.success) return undefined;
+
+    const email = parsed.data.email;
+    const existing = this.accounts.get(email);
+    if (existing) {
+      if (existing.credentials.password !== parsed.data.password) {
+        throw new Error(`Signup tracking already exists with different credentials for ${email}.`);
+      }
+      return existing;
+    }
+    const account: TrackedAccount = { credentials: parsed.data };
+    this.accounts.set(email, account);
+    return account;
+  }
+
+  private asTestAccount(account: TrackedAccount): TestAccount | undefined {
+    if (!account.user || !account.request || !account.authApi || !account.storageState) {
+      return undefined;
+    }
+    return {
+      user: account.user,
+      request: account.request,
+      authApi: account.authApi,
+      storageState: account.storageState,
+      credentials: account.credentials
+    };
   }
 }

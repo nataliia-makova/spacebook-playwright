@@ -6,6 +6,7 @@ export default defineConfig({
   testDir: './automation/tests',
   outputDir: './automation/test-results',
   fullyParallel: true,
+  forbidOnly: !!process.env.CI,
   timeout: 45_000,
   expect: {
     timeout: 5_000,
