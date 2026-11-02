@@ -1,4 +1,5 @@
-import { test } from '../../fixtures/auth-fixtures.js';
+import { expect, test } from '../../fixtures/auth-fixtures.js';
+import { AccountPage } from '../../pages/AccountPage.js';
 
 test('UI-06: signed-in customer creates a booking with correct details', async ({ bookingFlow, bookingScenario }) => {
   await bookingFlow.openSpace(bookingScenario);
@@ -10,11 +11,15 @@ test('UI-06: signed-in customer creates a booking with correct details', async (
   await bookingFlow.verifyBookingDetails(bookingScenario);
 });
 
-test('UI-07: My Bookings shows only the signed-in customer’s bookings', async ({ myBookingsFlow, bookingOwnershipScenario }) => {
+test('UI-07: My Bookings shows only the signed-in customer’s bookings', async ({ myBookingsFlow, bookingOwnershipScenario, page }) => {
   await myBookingsFlow.openMyBookings();
   await myBookingsFlow.verifyBookingInGroup(bookingOwnershipScenario.confirmedBooking, 'Upcoming');
   await myBookingsFlow.verifyBookingInGroup(bookingOwnershipScenario.cancelledBooking, 'Cancelled');
   await myBookingsFlow.verifyBookingNotListed(bookingOwnershipScenario.otherAccountBooking);
+
+  const accountPage = new AccountPage(page);
+  await expect(accountPage.bookingGroupHeading('Upcoming', 1)).toBeVisible();
+  await expect(accountPage.bookingGroupHeading('Cancelled', 1)).toBeVisible();
 });
 
 test('UI-08: customer can dismiss cancellation and release a booking slot', async ({ account, myBookingsFlow, privateBooking }) => {
