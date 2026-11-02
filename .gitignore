@@ -6,6 +6,8 @@ data/*.sqlite*
 *.log
 # Playwright generated artifacts
 automation/artifacts/
+automation/playwright-report/
+automation/test-results/
 playwright-report/
 test-results/
 .DS_Store

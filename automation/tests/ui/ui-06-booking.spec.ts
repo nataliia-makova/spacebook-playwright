@@ -1,55 +1,58 @@
 import { DateTime } from 'luxon';
-import { test, expect, futureBookingDate } from '../../fixtures/ui-fixtures.js';
+import { test, expect } from '../../fixtures/auth-fixtures.js';
+import { BookingDetailsPage } from '../../pages/BookingDetailsPage.js';
+import { SpaceDetailsPage } from '../../pages/SpaceDetailsPage.js';
+import { futureBookingDate } from '../../data/factories.js';
 import { TIMEZONE } from '../../../shared/contracts.js';
 
-test('UI-06: signed-in customer creates a booking with correct details', async ({ page, ui06Scenario }) => {
-  const { customer, space } = ui06Scenario;
+test('UI-06: signed-in customer creates a booking with correct details', async ({ page, testDataManager }) => {
+  const { customer, space } = testDataManager;
   const date = futureBookingDate();
   const expectedDate = DateTime.fromISO(date, { zone: TIMEZONE })
     .setLocale('en-GB')
     .toLocaleString({ day: 'numeric', month: 'long', year: 'numeric' });
 
-  await page.context().addCookies(ui06Scenario.storageState.cookies);
-  await page.goto(`/spaces/${space.id}`);
-  await expect(page.getByRole('heading', { name: space.name })).toBeVisible();
-  await expect(page.getByRole('navigation', { name: 'Main' }).getByText(customer.fullName, { exact: true })).toBeVisible();
-  await expect(page.getByText(`Booking for ${customer.fullName} (${customer.email})`)).toBeVisible();
+  const spaceDetails = new SpaceDetailsPage(page, space.name, customer.fullName, customer.email);
+  await spaceDetails.goto(space.id);
+  await expect(spaceDetails.heading).toBeVisible();
+  await expect(spaceDetails.mainNavigation.getByText(customer.fullName, { exact: true })).toBeVisible();
+  await expect(spaceDetails.bookingIdentity).toBeVisible();
 
-  await page.getByLabel('Date').fill(date);
-  await page.getByLabel('Duration').selectOption('2');
-  const startTime = page.getByRole('button', { name: '10:00 available' });
+  await spaceDetails.chooseBooking(date, 2);
+  const startTime = spaceDetails.startTimeButton('10:00');
   await expect(startTime).toBeEnabled();
-  await startTime.click();
+  await spaceDetails.selectStartTime('10:00');
 
-  await expect(page.locator('.price-breakdown .total').getByText('€80', { exact: true })).toBeVisible();
-  await page.getByRole('button', { name: 'Confirm booking' }).click();
+  await expect(spaceDetails.totalPrice.getByText('€80', { exact: true })).toBeVisible();
+  await spaceDetails.confirmBooking();
 
-  await expect(page.getByRole('heading', { name: 'Booking confirmed' })).toBeVisible();
-  const reference = page.locator('.reference strong');
-  await expect(reference).toHaveText(/^SB-[A-F0-9]{14}$/);
-  const bookingReference = await reference.innerText();
-  await expect(page.getByText(expectedDate, { exact: true })).toBeVisible();
-  await expect(page.getByText('10:00–12:00', { exact: true })).toBeVisible();
-  await expect(page.getByText(TIMEZONE, { exact: true })).toBeVisible();
-  await expect(page.locator('.booking-facts').getByText(customer.fullName, { exact: true })).toBeVisible();
-  await expect(page.locator('.booking-facts').getByText(customer.email, { exact: true })).toBeVisible();
-  await expect(page.getByRole('status').filter({ hasText: /^Confirmed$/ })).toBeVisible();
-  await expect(page.getByText('€80', { exact: true })).toBeVisible();
+  const bookingDetails = new BookingDetailsPage(page);
+  await expect(bookingDetails.heading).toBeVisible();
+  await expect(bookingDetails.reference).toHaveText(/^SB-[A-F0-9]{14}$/);
+  const bookingReference = await bookingDetails.reference.innerText();
+  await expect(bookingDetails.date).toHaveText(expectedDate);
+  await expect(bookingDetails.time).toHaveText('10:00–12:00');
+  await expect(bookingDetails.timezone).toHaveText(TIMEZONE);
+  await expect(bookingDetails.duration).toHaveText('2 hours');
+  await expect(bookingDetails.customerName).toHaveText(customer.fullName);
+  await expect(bookingDetails.customerEmail).toHaveText(customer.email);
+  await expect(bookingDetails.status).toBeVisible();
+  await expect(bookingDetails.total).toHaveText('€80');
 
   await expect(page).toHaveURL(/\/bookings\/[^/?#]+$/);
   const bookingUrl = page.url();
 
-  await page.reload({ waitUntil: 'domcontentloaded' });
+  await bookingDetails.reload();
 
   await expect(page).toHaveURL(bookingUrl);
-  await expect(page.getByRole('heading', { name: 'Booking confirmed' })).toBeVisible();
-
-  await expect(page.getByRole('heading', { name: 'Booking confirmed' })).toBeVisible();
-  await expect(page.locator('.reference strong')).toHaveText(bookingReference);
-  await expect(page.getByText(expectedDate, { exact: true })).toBeVisible();
-  await expect(page.getByText('10:00–12:00', { exact: true })).toBeVisible();
-  await expect(page.locator('.booking-facts').getByText(customer.fullName, { exact: true })).toBeVisible();
-  await expect(page.locator('.booking-facts').getByText(customer.email, { exact: true })).toBeVisible();
-  await expect(page.getByRole('status').filter({ hasText: /^Confirmed$/ })).toBeVisible();
-  await expect(page.getByText('€80', { exact: true })).toBeVisible();
+  await expect(bookingDetails.heading).toBeVisible();
+  await expect(bookingDetails.reference).toHaveText(bookingReference);
+  await expect(bookingDetails.date).toHaveText(expectedDate);
+  await expect(bookingDetails.time).toHaveText('10:00–12:00');
+  await expect(bookingDetails.timezone).toHaveText(TIMEZONE);
+  await expect(bookingDetails.duration).toHaveText('2 hours');
+  await expect(bookingDetails.customerName).toHaveText(customer.fullName);
+  await expect(bookingDetails.customerEmail).toHaveText(customer.email);
+  await expect(bookingDetails.status).toBeVisible();
+  await expect(bookingDetails.total).toHaveText('€80');
 });
