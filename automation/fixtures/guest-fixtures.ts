@@ -1,5 +1,6 @@
 import { test as base, expect } from '@playwright/test';
 import { TestDataManager } from '../support/TestDataManager.js';
+import { APP_ORIGIN } from '../support/testConfig.js';
 
 type Fixtures = {
   testDataManager: TestDataManager;
@@ -8,7 +9,7 @@ type Fixtures = {
 export const test = base.extend<Fixtures>({
   testDataManager: async ({ playwright, baseURL }, use) => {
     if (!baseURL) throw new Error('Tests using TestDataManager require a configured baseURL.');
-    const manager = new TestDataManager(playwright.request, baseURL, new URL(baseURL).origin);
+    const manager = new TestDataManager(playwright.request, baseURL, APP_ORIGIN);
     const failures: Error[] = [];
 
     try {

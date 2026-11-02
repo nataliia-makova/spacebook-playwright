@@ -29,7 +29,7 @@ export class TestDataManager {
   constructor(
     private readonly requestFactory: APIRequestFactory,
     private readonly baseURL: string,
-    private readonly origin: string
+    private readonly appOrigin: string
   ) {}
 
   get primaryAccount(): TestAccount {
@@ -65,7 +65,7 @@ export class TestDataManager {
       storageState: { cookies: [], origins: [] }
     });
     this.accountRequests.add(request);
-    const authApi = new AuthApi(request, this.origin);
+    const authApi = new AuthApi(request, this.appOrigin);
     const user = await authApi.signup(input);
     const account: TrackedAccount = { user, request, authApi };
     this.accounts.set(user.id, account);

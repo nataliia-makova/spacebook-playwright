@@ -1,5 +1,6 @@
 
 import { defineConfig, devices } from '@playwright/test';
+import { APP_ORIGIN } from './automation/support/testConfig.js';
 
 export default defineConfig({
   testDir: './automation/tests',
@@ -40,7 +41,7 @@ webServer: {
   env: {
     APP_ENV: 'test',
     DB_PATH: './data/e2e.sqlite',
-    APP_ORIGIN: 'http://127.0.0.1:5173',
+    APP_ORIGIN,
     PORT: '3001',
   },
 },
@@ -54,7 +55,7 @@ webServer: {
       ],
       use: {
         ...devices['Desktop Chrome'],
-        baseURL: 'http://127.0.0.1:5173',
+        baseURL: APP_ORIGIN,
       },
     },
     {
