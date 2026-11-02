@@ -1,31 +1,47 @@
 import type { APIRequestContext, BrowserContextOptions } from '@playwright/test';
-import type { Booking, Space, User } from '../../shared/contracts.js';
+import type { Booking, Space, SpaceInput, User } from '../../shared/contracts.js';
 import { AuthApi } from '../api/AuthApi.js';
 import { TestSupportApi } from '../api/TestSupportApi.js';
-import { createSpaceInput, createUserInput } from '../data/factories.js';
+import { createSpaceInput, createUserInput, type SignupInput } from '../data/factories.js';
 
 type StorageState = Exclude<NonNullable<BrowserContextOptions['storageState']>, string>;
+type APIRequestFactory = {
+  newContext(options: { baseURL: string; storageState: StorageState }): Promise<APIRequestContext>;
+};
+type TestAccount = {
+  user: User;
+  request: APIRequestContext;
+  authApi: AuthApi;
+  storageState: StorageState;
+};
+type TrackedAccount = Omit<TestAccount, 'storageState'> & {
+  storageState?: StorageState;
+};
 
 export class TestDataManager {
-  private readonly users = new Map<string, User>();
+  private readonly accounts = new Map<string, TrackedAccount>();
   private readonly spaces = new Map<string, Space>();
   private readonly bookings = new Map<string, Booking>();
-  private storageStateValue: StorageState | undefined;
-  private readonly authApi: AuthApi;
-  private readonly testSupportApi: TestSupportApi;
+  private readonly accountRequests = new Set<APIRequestContext>();
+  private supportRequest: APIRequestContext | undefined;
+  private testSupportApi: TestSupportApi | undefined;
 
   constructor(
-    private readonly request: APIRequestContext,
-    origin: string
-  ) {
-    this.authApi = new AuthApi(request, origin);
-    this.testSupportApi = new TestSupportApi(request);
+    private readonly requestFactory: APIRequestFactory,
+    private readonly baseURL: string,
+    private readonly origin: string
+  ) {}
+
+  get primaryAccount(): TestAccount {
+    const account = this.accounts.values().next().value;
+    if (!account?.storageState) {
+      throw new Error('The primary test account has not been created.');
+    }
+    return { ...account, storageState: account.storageState };
   }
 
   get customer(): User {
-    const customer = this.users.values().next().value;
-    if (!customer) throw new Error('The test account has not been created.');
-    return customer;
+    return this.primaryAccount.user;
   }
 
   get space(): Space {
@@ -35,17 +51,30 @@ export class TestDataManager {
   }
 
   get storageState(): StorageState {
-    if (!this.storageStateValue) throw new Error('The test account storage state is not available.');
-    return this.storageStateValue;
+    return this.primaryAccount.storageState;
   }
 
-  async createScenario(): Promise<void> {
-    const customer = await this.authApi.signup(createUserInput());
-    this.users.set(customer.id, customer);
-    this.storageStateValue = await this.request.storageState();
+  async createAccount(input: SignupInput = createUserInput()): Promise<TestAccount> {
+    const request = await this.requestFactory.newContext({
+      baseURL: this.baseURL,
+      storageState: { cookies: [], origins: [] }
+    });
+    this.accountRequests.add(request);
+    const authApi = new AuthApi(request, this.origin);
+    const user = await authApi.signup(input);
+    const account: TrackedAccount = { user, request, authApi };
+    this.accounts.set(user.id, account);
 
-    const space = await this.testSupportApi.createSpace(createSpaceInput());
+    const storageState = await request.storageState();
+    account.storageState = storageState;
+    return { ...account, storageState };
+  }
+
+  async createSpace(input: SpaceInput = createSpaceInput()): Promise<Space> {
+    const supportApi = await this.getTestSupportApi();
+    const space = await supportApi.createSpace(input);
     this.spaces.set(space.id, space);
+    return space;
   }
 
   async cleanup(): Promise<void> {
@@ -58,12 +87,10 @@ export class TestDataManager {
       }
     };
 
-    for (const user of this.users.values()) {
-      await attempt(`Discovering bookings for ${user.email}`, async () => {
-        const userBookings = await this.authApi.listBookings();
-        const ownedSpaceIds = new Set(this.spaces.keys());
-        for (const booking of userBookings) {
-          if (ownedSpaceIds.has(booking.spaceId) && booking.customerEmail === user.email) {
+    for (const account of this.accounts.values()) {
+      await attempt(`Discovering bookings for ${account.user.email}`, async () => {
+        for (const booking of await account.authApi.listBookings()) {
+          if (booking.customerEmail === account.user.email) {
             this.bookings.set(booking.id, booking);
           }
         }
@@ -71,20 +98,46 @@ export class TestDataManager {
     }
 
     for (const booking of this.bookings.values()) {
-      await attempt(`Deleting booking ${booking.reference}`, () =>
-        this.testSupportApi.deleteBooking(booking.id));
+      await attempt(`Deleting booking ${booking.reference}`, async () => {
+        const supportApi = await this.getTestSupportApi();
+        await supportApi.deleteBooking(booking.id);
+      });
     }
     for (const space of this.spaces.values()) {
-      await attempt(`Deleting space ${space.id}`, () =>
-        this.testSupportApi.deleteSpace(space.id));
+      await attempt(`Deleting space ${space.id}`, async () => {
+        const supportApi = await this.getTestSupportApi();
+        await supportApi.deleteSpace(space.id);
+      });
     }
-    for (const user of this.users.values()) {
-      await attempt(`Deleting account ${user.id}`, () =>
-        this.testSupportApi.deleteUser(user.id));
+    for (const account of this.accounts.values()) {
+      await attempt(`Deleting account ${account.user.id}`, async () => {
+        const supportApi = await this.getTestSupportApi();
+        await supportApi.deleteUser(account.user.id);
+      });
+    }
+
+    for (const request of this.accountRequests) {
+      await attempt('Disposing an account API context', () => request.dispose());
+    }
+    if (this.supportRequest) {
+      const request = this.supportRequest;
+      await attempt('Disposing the test-support API context', () => request.dispose());
     }
 
     if (errors.length) {
       throw new AggregateError(errors, 'Test data cleanup failed.');
     }
+  }
+
+  private async getTestSupportApi(): Promise<TestSupportApi> {
+    if (!this.testSupportApi) {
+      const request = await this.requestFactory.newContext({
+        baseURL: this.baseURL,
+        storageState: { cookies: [], origins: [] }
+      });
+      this.supportRequest = request;
+      this.testSupportApi = new TestSupportApi(request);
+    }
+    return this.testSupportApi;
   }
 }

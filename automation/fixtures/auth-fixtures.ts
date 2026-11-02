@@ -9,12 +9,12 @@ type Fixtures = {
 export const test = guestTest.extend<Fixtures>({
   testDataManager: async ({ playwright, baseURL }, use) => {
     if (!baseURL) throw new Error('Authenticated UI tests require a configured baseURL.');
-    const request = await playwright.request.newContext({ baseURL });
-    const manager = new TestDataManager(request, new URL(baseURL).origin);
+    const manager = new TestDataManager(playwright.request, baseURL, new URL(baseURL).origin);
     const failures: Error[] = [];
 
     try {
-      await manager.createScenario();
+      await manager.createAccount();
+      await manager.createSpace();
       await use(manager);
     } catch (error) {
       failures.push(error instanceof Error ? error : new Error(String(error)));
@@ -22,12 +22,6 @@ export const test = guestTest.extend<Fixtures>({
 
     try {
       await manager.cleanup();
-    } catch (error) {
-      failures.push(error instanceof Error ? error : new Error(String(error)));
-    }
-
-    try {
-      await request.dispose();
     } catch (error) {
       failures.push(error instanceof Error ? error : new Error(String(error)));
     }
