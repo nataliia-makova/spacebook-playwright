@@ -28,13 +28,13 @@ The app is **React + Vite** on port **5173**, **Express** on port **3001**, and 
 
 ## Application invariants
 
-- Preserve server-owned authentication and authorization: HttpOnly cookie sessions, account ownership for booking detail/list/cancellation, and exact-origin protection for mutations.
+- Preserve server-owned authentication and authorization: HttpOnly cookie sessions and account ownership for booking details, listing, and cancellation. Enforce origin validation for normal API mutations: strict matching in test/production, with same-protocol-and-port loopback aliases allowed in development. Test-support endpoints are exempt from this origin check and are available only in isolated test mode.
 - Booking creation uses a UUID `Idempotency-Key`: identical retries return the original booking; changed payloads or conflicting slots are rejected. Never silently bypass this contract.
 - All customer-facing booking times are in `Europe/Warsaw`; timestamps stored in SQLite are UTC. Use Luxon to handle timezone/DST boundaries.
 - Prices are EUR **integer cents**; compute totals on the server rather than trusting client input.
 - Use shared Zod schemas/contracts from `shared/contracts.ts` for API validation. Database changes belong in additive `migrations/` files, not ad hoc schema resets.
 - `/api/test-support/*` routes are for isolated `APP_ENV=test` only. Do not expose test-only controls in production.
-- Do not leak credentials, session cookies, private confirmation tokens, or test data in logs, fixtures, documentation, or public reports.
+- Never commit or expose real credentials, production data, session cookies, or private confirmation tokens. Use synthetic accounts and booking data in test fixtures. Treat Playwright reports, screenshots, and traces as potentially sensitive artifacts.
 
 ## Playwright design rules
 
@@ -51,16 +51,18 @@ The app is **React + Vite** on port **5173**, **Express** on port **3001**, and 
 
 ## Test data, execution, and safety
 
-`playwright.config.ts` starts `npm run db:reset && npm run dev` with `APP_ENV=test`, `APP_ORIGIN=http://127.0.0.1:5173`, and `DB_PATH=./data/e2e.sqlite`. Playwright uses `chromium` for `ui/`, `mocked/`, and `e2e/`, and `api` for `api/`. It resets the disposable test DB when the suite starts. Do **not** point test runs or reset scripts at `data/dev.sqlite`, production, or shared databases. Stop manual servers on ports 5173/3001 before running Playwright.
+`playwright.config.ts` starts an isolated test server with `APP_ENV=test`, `DB_PATH=./data/e2e.sqlite`, and `APP_ORIGIN=http://127.0.0.1:5173`. It resets only the configured disposable test database at startup. Playwright uses `chromium` for `ui/`, `mocked/`, and `e2e/`, and `api` for `api/`.
 
-Existing tag conventions:
-- `@pr`: six API tests, the only group selected by CI.
-- `@hourly`: five critical UI/API scenarios; illustrative tag only, **not scheduled**.
-- `@security`: four authorization/isolation scenarios; manual filtering only.
-- `@recovery`: three fault-recovery scenarios; manual filtering only.
-- Full regression: `npx playwright test` (no special tag).
+**Warning:** Running `npm run db:reset` manually deletes the configured local SQLite database. Without environment overrides, this is `data/dev.sqlite`, including existing development bookings; a custom `DB_PATH` changes the target. Never reset production or shared data. Stop manually running servers on ports 5173/3001 before Playwright execution.
 
-The single **SpaceBook PR Tests** workflow runs on PRs targeting `main` and manual dispatch. It performs typecheck, lint, six backend tests, build and `npx playwright test --project=api --grep @pr`. Do not add push, nightly, or hourly triggers without a specific request.
+**Test selection and CI:**
+- `@pr` — fast API checks executed by the PR workflow.
+- `@hourly` — illustrative critical UI/API smoke selection; **not scheduled**.
+- `@security` — authorization and account-isolation scenarios.
+- `@recovery` — failure and retry scenarios.
+- Full regression — `npx playwright test` (no special tag).
+
+CI runs on pull requests targeting `main` and through manual dispatch. Consult `.github/workflows/playwright.yml` for authoritative commands and triggers; do not add new triggers without explicit authorization.
 
 ## Before completing a change
 
@@ -71,7 +73,7 @@ npm run typecheck
 npm run lint
 npm run test:backend
 npx playwright test --project=api --grep @pr
-npx playwright test                     # full 20-test suite for framework/app changes
+npx playwright test                     # full regression for framework/app changes
 ```
 
 Report files changed and **actual** verification results, including commands that could not be run. Preserve app behavior, existing coverage, and cleanup; avoid unrelated refactors. Do not commit, push, merge, or modify workflows unless the user explicitly authorizes those actions.
