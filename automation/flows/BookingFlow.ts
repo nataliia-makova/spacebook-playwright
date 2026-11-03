@@ -6,7 +6,7 @@ import { BookingDetailsPage } from '../pages/BookingDetailsPage.js';
 import { SpaceDetailsPage } from '../pages/SpaceDetailsPage.js';
 
 export type BookingScenario = {
-  customer: User;
+  customer: Pick<User, 'fullName' | 'email'>;
   space: Space;
   date: string;
   startTime: string;
@@ -76,7 +76,7 @@ export class BookingFlow {
   }
 
   async confirmBooking(scenario: BookingScenario): Promise<void> {
-    await test.step('Confirm the booking and verify its details', async () => {
+    await test.step('Confirm the booking and open its confirmation', async () => {
       await this.spaceDetailsFor(scenario).confirmBooking();
 
       const bookingDetails = new BookingDetailsPage(this.page);
@@ -89,7 +89,6 @@ export class BookingFlow {
         reference: await bookingDetails.reference.innerText(),
         url: this.page.url()
       };
-      await this.assertBookingDetails(scenario, this.confirmation);
     });
   }
 
@@ -105,6 +104,32 @@ export class BookingFlow {
         throw new Error('Confirm the booking before verifying its persisted details.');
       }
       await this.assertBookingDetails(scenario, this.confirmation);
+    });
+  }
+
+  async verifyBookingMatchesApi(booking: Booking): Promise<void> {
+    await test.step('Verify the UI confirmation matches the API booking', async () => {
+      if (!this.confirmation) {
+        throw new Error('Confirm the booking before comparing its details with the API.');
+      }
+      expect(this.confirmation).toEqual({
+        reference: booking.reference,
+        url: booking.confirmationUrl
+      });
+      await expect(this.page).toHaveURL(booking.confirmationUrl);
+      await expect(new BookingDetailsPage(this.page).reference).toHaveText(booking.reference);
+    });
+  }
+
+  async verifyCancelledBookingDetails(booking: Booking): Promise<void> {
+    await test.step('Verify the cancelled booking details', async () => {
+      const details = new BookingDetailsPage(this.page);
+      await expect(this.page).toHaveURL(booking.confirmationUrl);
+      await expect(details.heading).toHaveText('Booking cancelled');
+      await expect(details.reference).toHaveText(booking.reference);
+      await expect(details.customerName).toHaveText(booking.customerName);
+      await expect(details.customerEmail).toHaveText(booking.customerEmail);
+      await expect(details.status).toHaveText('Cancelled');
     });
   }
 

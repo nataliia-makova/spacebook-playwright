@@ -139,6 +139,7 @@ export class RecoveryFlow {
 
       await this.bookingFlow.selectAvailableSlot(alternativeScenario);
       await this.bookingFlow.confirmBooking(alternativeScenario);
+      await this.bookingFlow.verifyBookingDetails(alternativeScenario);
     });
   }
 

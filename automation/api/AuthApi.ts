@@ -30,6 +30,16 @@ export class AuthApi {
     return body.user;
   }
 
+  async getCurrentUser(): Promise<User> {
+    const response = await this.request.get('/api/auth/me');
+    await expectApiStatus(response, 200, 'Reading the authenticated browser customer');
+    const body = await response.json() as { user: User };
+    if (!body.user || typeof body.user.id !== 'string') {
+      throw new Error('The authenticated customer response is invalid.');
+    }
+    return body.user;
+  }
+
   async listBookings(): Promise<Booking[]> {
     const response = await this.request.get('/api/me/bookings');
     await expectApiStatus(response, 200, 'Listing bookings for the test account');
