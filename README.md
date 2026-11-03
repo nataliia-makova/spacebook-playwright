@@ -13,7 +13,7 @@ The application uses React, Express, and SQLite. It runs locally and requires no
 Clone the repository and start SpaceBook:
 
 ```bash
-git clone https://github.com/makonat/spacebook-playwright.git
+git clone https://github.com/nataliia-makova/spacebook-playwright.git
 cd spacebook-playwright
 npm ci
 npm run dev
