@@ -1,57 +1,50 @@
 import { expect, test, type Page } from '@playwright/test';
 import { DateTime } from 'luxon';
 import type { Booking, User } from '../../shared/contracts.js';
-import type { SignupInput } from '../data/factories.js';
-import { SpaceApi } from '../api/SpaceApi.js';
-import { AccountPage } from '../pages/AccountPage.js';
-import { BookingDetailsPage } from '../pages/BookingDetailsPage.js';
+import type { BookingDatabaseRecord } from '../support/BookingDatabase.js';
+import { AuthApi } from '../api/AuthApi.js';
 import { readBookingsForSpace } from '../support/BookingDatabase.js';
 import { APP_ORIGIN } from '../support/testConfig.js';
-import { BookingFlow, type BookingScenario } from './BookingFlow.js';
-import { MyBookingsFlow } from './MyBookingsFlow.js';
+import type { BookingScenario } from './BookingFlow.js';
 
-export type BookingJourneyScenario = Omit<BookingScenario, 'customer'>;
+export type BookingJourneyState = {
+  authenticatedCustomer?: User;
+  confirmedBooking?: Booking;
+  confirmedRecord?: BookingDatabaseRecord;
+  cancelledBooking?: Booking;
+};
+
+export type BookingJourneyScenario = BookingScenario & {
+  state: BookingJourneyState;
+  readonly booking: Booking;
+};
 
 export class BookingJourneyFlow {
-  constructor(
-    private readonly page: Page,
-    private readonly bookingFlow: BookingFlow,
-    private readonly myBookingsFlow: MyBookingsFlow
-  ) {}
+  private readonly authApi: AuthApi;
 
-  async verifyBookingLifecycle(
-    scenario: BookingJourneyScenario,
-    credentials: SignupInput
-  ): Promise<void> {
-    const customer = await test.step('Verify browser signup created the authenticated customer', async () => {
-      const response = await this.page.context().request.get(APP_ORIGIN + '/api/auth/me');
-      expect(response.status()).toBe(200);
-      const body = await response.json() as { user: User };
-      expect(body.user).toMatchObject({
-        fullName: credentials.fullName,
-        email: credentials.email
-      });
-      expect(body.user.id).toBeTruthy();
-      return body.user;
+  constructor(page: Page) {
+    this.authApi = new AuthApi(page.context().request, APP_ORIGIN);
+  }
+
+  async verifyAuthenticatedCustomer(scenario: BookingJourneyScenario): Promise<void> {
+    await test.step('Verify signup authenticated the expected customer', async () => {
+      const customer = await this.authApi.getCurrentUser();
+      expect(customer).toMatchObject(scenario.customer);
+      expect(customer.id).toBeTruthy();
+      scenario.state.authenticatedCustomer = customer;
     });
-    const bookingScenario: BookingScenario = { ...scenario, customer };
+  }
 
-    await test.step('Create and confirm the booking through the UI', async () => {
-      await this.bookingFlow.openSpace(bookingScenario);
-      await this.bookingFlow.selectAvailableSlot(bookingScenario);
-      await this.bookingFlow.verifyBookingPrice(bookingScenario);
-      await this.bookingFlow.confirmBooking(bookingScenario);
-    });
-
-    const created = await test.step('Verify the confirmed booking in the UI, API and SQLite', async () => {
-      const bookings = await this.readCustomerBookings();
+  async verifyConfirmedBookingInApi(scenario: BookingJourneyScenario): Promise<void> {
+    await test.step('Verify the confirmed booking through the authenticated API', async () => {
+      const bookings = await this.authApi.listBookings();
       expect(bookings).toHaveLength(1);
       const booking = bookings[0]!;
       expect(booking).toMatchObject({
         spaceId: scenario.space.id,
         spaceName: scenario.space.name,
-        customerName: credentials.fullName,
-        customerEmail: credentials.email,
+        customerName: scenario.customer.fullName,
+        customerEmail: scenario.customer.email,
         durationHours: scenario.durationHours,
         totalPrice: scenario.expectedTotalCents,
         status: 'confirmed',
@@ -62,8 +55,16 @@ export class BookingJourneyFlow {
       expect(start.toFormat('yyyy-MM-dd HH:mm'))
         .toBe(scenario.date + ' ' + scenario.startTime);
       expect(end.toMillis() - start.toMillis()).toBe(scenario.durationHours * 60 * 60 * 1000);
-      await this.bookingFlow.verifyRecoveredBookingDetails(bookingScenario, booking);
+      scenario.state.confirmedBooking = booking;
+    });
+  }
 
+  async verifyConfirmedBookingInDatabase(scenario: BookingJourneyScenario): Promise<void> {
+    await test.step('Verify the confirmed booking in SQLite', async () => {
+      const customer = scenario.state.authenticatedCustomer;
+      if (!customer) throw new Error('Verify the authenticated customer before checking SQLite.');
+
+      const booking = scenario.booking;
       const rows = readBookingsForSpace(scenario.space.id);
       expect(rows).toHaveLength(1);
       const record = rows[0]!;
@@ -72,8 +73,8 @@ export class BookingJourneyFlow {
         reference: booking.reference,
         spaceId: scenario.space.id,
         userId: customer.id,
-        customerName: credentials.fullName,
-        customerEmail: credentials.email,
+        customerName: scenario.customer.fullName,
+        customerEmail: scenario.customer.email,
         startsAt: booking.startsAt,
         endsAt: booking.endsAt,
         durationHours: scenario.durationHours,
@@ -81,65 +82,39 @@ export class BookingJourneyFlow {
         status: 'confirmed',
         cancelledAt: null
       });
-
-      await this.myBookingsFlow.openMyBookings();
-      await this.myBookingsFlow.verifyBookingConfirmed(booking);
-      await this.myBookingsFlow.verifyGroupCounts({ Upcoming: 1, Cancelled: 0 });
-      return { booking, record };
+      scenario.state.confirmedRecord = record;
     });
+  }
 
-    await test.step('Cancel the original booking through My Bookings', async () => {
-      await this.myBookingsFlow.requestCancellation(created.booking);
-      await this.myBookingsFlow.confirmCancellation();
-      await this.myBookingsFlow.verifyBookingCancelled(created.booking);
-    });
-
-    await test.step('Verify cancellation in the UI, API and SQLite and release the slot', async () => {
-      const bookings = await this.readCustomerBookings();
+  async verifyCancelledBookingInApi(scenario: BookingJourneyScenario): Promise<void> {
+    await test.step('Verify the original booking was cancelled in the authenticated API', async () => {
+      const bookings = await this.authApi.listBookings();
       expect(bookings).toHaveLength(1);
       const booking = bookings[0]!;
       expect(booking).toEqual({
-        ...created.booking,
+        ...scenario.booking,
         status: 'cancelled',
         cancelledAt: expect.any(String)
       });
       expect(Number.isNaN(Date.parse(booking.cancelledAt ?? ''))).toBe(false);
-
-      await this.myBookingsFlow.verifyBookingCancelled(booking);
-      await this.myBookingsFlow.verifyGroupCounts({ Upcoming: 0, Cancelled: 1 });
-      await this.myBookingsFlow.reloadPage();
-      await this.myBookingsFlow.verifyBookingCancelled(booking);
-      await this.myBookingsFlow.verifyGroupCounts({ Upcoming: 0, Cancelled: 1 });
-
-      const rows = readBookingsForSpace(scenario.space.id);
-      expect(rows).toHaveLength(1);
-      expect(rows[0]).toEqual({
-        ...created.record,
-        status: 'cancelled',
-        cancelledAt: booking.cancelledAt
-      });
-
-      const availability = await new SpaceApi(this.page.context().request).getAvailability(
-        scenario.space.id, scenario.date, scenario.durationHours
-      );
-      expect(availability.slots.some(slot => slot.startTime === scenario.startTime))
-        .toBe(true);
-
-      await new AccountPage(this.page).bookingDetailsLink(booking.reference).click();
-      const details = new BookingDetailsPage(this.page);
-      await expect(details.heading).toHaveText('Booking cancelled');
-      await expect(details.reference).toHaveText(created.booking.reference);
-      await expect(details.customerName).toHaveText(credentials.fullName);
-      await expect(details.customerEmail).toHaveText(credentials.email);
-      await expect(details.status).toHaveText('Cancelled');
+      scenario.state.cancelledBooking = booking;
     });
   }
 
-  private async readCustomerBookings(): Promise<Booking[]> {
-    const response = await this.page.context().request.get(APP_ORIGIN + '/api/me/bookings');
-    expect(response.status()).toBe(200);
-    const body = await response.json() as { bookings: Booking[] };
-    expect(Array.isArray(body.bookings)).toBe(true);
-    return body.bookings;
+  async verifyCancelledBookingInDatabase(scenario: BookingJourneyScenario): Promise<void> {
+    await test.step('Verify the cancelled booking was retained correctly in SQLite', async () => {
+      const originalRecord = scenario.state.confirmedRecord;
+      const cancelledBooking = scenario.state.cancelledBooking;
+      if (!originalRecord || !cancelledBooking) {
+        throw new Error('Verify the confirmed database record and API cancellation first.');
+      }
+      const rows = readBookingsForSpace(scenario.space.id);
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toEqual({
+        ...originalRecord,
+        status: 'cancelled',
+        cancelledAt: cancelledBooking.cancelledAt
+      });
+    });
   }
 }

@@ -24,6 +24,13 @@ export class MyBookingsFlow {
     });
   }
 
+  async openBookingDetails(booking: Booking): Promise<void> {
+    await test.step(`Open booking ${booking.reference} from My Bookings`, async () => {
+      await new AccountPage(this.page).bookingDetailsLink(booking.reference).click();
+      await expect(this.page).toHaveURL(booking.confirmationUrl);
+    });
+  }
+
   async verifyEmptyBookings(): Promise<void> {
     await test.step('Verify the customer has no bookings', async () => {
       const accountPage = new AccountPage(this.page);
@@ -117,13 +124,13 @@ export class MyBookingsFlow {
     });
   }
 
-  async verifyTimeSlotAvailable(booking: Booking, account: TestAccount): Promise<void> {
+  async verifyTimeSlotAvailable(booking: Booking, account?: TestAccount): Promise<void> {
     await test.step('Verify the cancelled booking time is available again', async () => {
       const localStart = DateTime.fromISO(booking.startsAt, { zone: 'utc' }).setZone(TIMEZONE);
       const date = localStart.toISODate();
       if (!date) throw new Error('Could not determine the booking date in the configured timezone.');
 
-      const availability = await new SpaceApi(account.request).getAvailability(
+      const availability = await new SpaceApi(account?.request ?? this.page.context().request).getAvailability(
         booking.spaceId,
         date,
         booking.durationHours
