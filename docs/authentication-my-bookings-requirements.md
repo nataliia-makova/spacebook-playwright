@@ -4,7 +4,7 @@
 
 **Target branch:** `feat/demo-application` (implementation and requirements).
 
-**Baseline:** [First-release application requirements](https://github.com/makonat/spacebook-playwright/blob/docs/application-requirements/docs/application-requirements.md).
+**Baseline:** [First-release application requirements](application-requirements.md).
 
 ## Relationship to release 1
 
