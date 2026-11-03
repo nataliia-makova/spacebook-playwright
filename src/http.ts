@@ -31,7 +31,8 @@ function read<T>(url:string):Promise<T>{
   void request.then(clear,clear);
   return request;
 }
-export function useRead<T>(url:string|null,keepPreviousData=false){
+type ReadOptions={keepPreviousData?:boolean;deduplicate?:boolean};
+export function useRead<T>(url:string|null,{keepPreviousData=false,deduplicate=false}:ReadOptions={}){
   const previousUrl=useRef(url);
   const [reloadId,setReloadId]=useState(0);
   const [state,setState]=useState<{data:T|null;loading:boolean;error:ApiProblem|null}>({data:null,loading:true,error:null});
@@ -41,9 +42,9 @@ export function useRead<T>(url:string|null,keepPreviousData=false){
     const preserveData=keepPreviousData||previousUrl.current===url;
     previousUrl.current=url;
     setState(previous=>({data:preserveData?previous.data:null,loading:true,error:null}));
-    read<T>(url).then(data=>{if(active)setState({data,loading:false,error:null});})
+    (deduplicate?read<T>(url):api<T>(url)).then(data=>{if(active)setState({data,loading:false,error:null});})
       .catch((error:ApiProblem)=>{if(active)setState({data:null,loading:false,error});});
     return ()=>{active=false;};
-  },[url,reloadId,keepPreviousData]);
+  },[url,reloadId,keepPreviousData,deduplicate]);
   return {...state,retry:()=>setReloadId(id=>id+1)};
 }

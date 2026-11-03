@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page, type Route } from '@playwright/test';
 import { DateTime } from 'luxon';
 import type { ApiError, Booking, BookingInput } from '../../shared/contracts.js';
 import { BookingApi } from '../api/BookingApi.js';
@@ -11,6 +11,8 @@ import { MyBookingsFlow } from './MyBookingsFlow.js';
 
 export class RecoveryFlow {
   private failedRequests = 0;
+  private failingBookingsRequests = false;
+  private bookingsFailureRoute: ((route: Route) => Promise<void>) | undefined;
   private readonly bookingApi: BookingApi;
   private competingBooking: Booking | undefined;
 
@@ -26,8 +28,9 @@ export class RecoveryFlow {
 
   async failNextBookingsRequest(): Promise<void> {
     await test.step('Fail the next My Bookings request once', async () => {
-      await this.page.route('**/api/me/bookings', async route => {
-        if (route.request().method() !== 'GET') {
+      this.failingBookingsRequests = true;
+      this.bookingsFailureRoute = async route => {
+        if (route.request().method() !== 'GET' || !this.failingBookingsRequests) {
           await route.continue();
           return;
         }
@@ -43,7 +46,8 @@ export class RecoveryFlow {
             }
           })
         });
-      }, { times: 1 });
+      };
+      await this.page.route('**/api/me/bookings', this.bookingsFailureRoute);
     });
   }
 
@@ -54,14 +58,19 @@ export class RecoveryFlow {
       await expect(accountPage.retryBookingsButton).toBeVisible();
       await expect(accountPage.bookingRow(booking.reference)).toHaveCount(0);
       await expect(this.page.getByText(booking.spaceName, { exact: true })).toHaveCount(0);
-      expect(this.failedRequests).toBe(1);
+      expect(this.failedRequests).toBeGreaterThan(0);
     });
   }
 
   async retryLoadingBookings(): Promise<void> {
     await test.step('Retry loading My Bookings', async () => {
+      await this.stopFailingBookingsRequests();
       await new AccountPage(this.page).retryBookingsButton.click();
     });
+  }
+
+  async cleanup(): Promise<void> {
+    await this.stopFailingBookingsRequests();
   }
 
   async verifyBookingVisible(booking: Booking): Promise<void> {
@@ -302,6 +311,14 @@ export class RecoveryFlow {
       });
     } finally {
       await this.page.unroute('**/api/bookings', bookingRoute);
+    }
+  }
+
+  private async stopFailingBookingsRequests(): Promise<void> {
+    this.failingBookingsRequests = false;
+    if (this.bookingsFailureRoute) {
+      await this.page.unroute('**/api/me/bookings', this.bookingsFailureRoute);
+      this.bookingsFailureRoute = undefined;
     }
   }
 }

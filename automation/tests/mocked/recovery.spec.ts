@@ -24,3 +24,9 @@ test('MOCK-03: customer safely retries when the booking response is lost', async
   await bookingFlow.verifyBookingPrice(bookingScenario);
   await recoveryFlow.verifyRetryAfterLostResponse(bookingScenario, account);
 });
+
+test('MOCK-04: switching accounts never reveals another customer’s bookings', async ({accountIsolationFlow, accountIsolationScenario}) => {
+  await accountIsolationFlow.startDelayedBookingsRequest(accountIsolationScenario);
+  await accountIsolationFlow.switchAccount(accountIsolationScenario);
+  await accountIsolationFlow.verifyBookingsIsolated(accountIsolationScenario);
+});

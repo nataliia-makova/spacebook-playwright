@@ -4,6 +4,7 @@ export class AccountPage {
   readonly accountMenu: Locator;
   readonly accountNavigation: Locator;
   readonly accountLink: Locator;
+  readonly pageBody: Locator;
   readonly myBookingsHeading: Locator;
   readonly signInPrompt: Locator;
   readonly noBookingsHeading: Locator;
@@ -18,6 +19,7 @@ export class AccountPage {
     this.accountMenu = page.locator('summary[aria-label="Account menu"]');
     this.accountNavigation = page.getByRole('navigation', { name: 'Account' });
     this.accountLink = page.getByRole('link', { name: 'Account', exact: true });
+    this.pageBody = page.locator('body');
     this.myBookingsHeading = page.getByRole('heading', { name: 'My Bookings' });
     this.signInPrompt = page.getByRole('heading', { name: 'Sign in to see your bookings.' });
     this.noBookingsHeading = page.getByRole('heading', { name: 'No bookings yet.' });

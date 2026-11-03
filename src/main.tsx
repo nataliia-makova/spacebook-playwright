@@ -28,7 +28,7 @@ function Browse(){
   const [type,setType]=useState('');const [capacity,setCapacity]=useState('');
   const query=new URLSearchParams();if(type)query.set('type',type);if(capacity)query.set('minCapacity',capacity);
   const url=`/api/spaces${query.size?'?'+query.toString():''}`;
-  const {data,loading,error,retry}=useRead<{spaces:Space[]}>(url,true);
+  const {data,loading,error,retry}=useRead<{spaces:Space[]}>(url,{keepPreviousData:true,deduplicate:true});
   return <main className="browse shell">
     <div className="browse-heading"><span className="eyebrow">Spaces for making</span><h1>Find room for your next idea.</h1><p>Thoughtful spaces for photography, music, and conversation. Book by the hour.</p></div>
     <div className="filters" aria-label="Filter spaces">
@@ -88,7 +88,7 @@ function BookingForm({space}:{space:Space}){
   const [conflict,setConflict]=useState(false);
   const [spaceMissing,setSpaceMissing]=useState(false);
   const query=new URLSearchParams({date,durationHours:String(duration)});
-  const {data,loading,error,retry}=useRead<Availability>(`/api/spaces/${space.id}/availability?${query}`);
+  const {data,loading,error,retry}=useRead<Availability>(`/api/spaces/${space.id}/availability?${query}`,{deduplicate:true});
   const availableSlots=data?.slots||[];
   const selected=availableSlots.find(s=>s.startTime===time);
   const locked=!!uncertain||submitting;
@@ -152,7 +152,7 @@ function BookingForm({space}:{space:Space}){
   </form></section>;
 }
 function SpaceDetails(){
-  const {spaceId}=useParams();const {data,loading,error,retry}=useRead<{space:Space}>(`/api/spaces/${spaceId}`);
+  const {spaceId}=useParams();  const {data,loading,error,retry}=useRead<{space:Space}>(`/api/spaces/${spaceId}`,{deduplicate:true});
   if(loading)return <main className="shell"><Spinner label="Loading space details…"/></main>;
   if(error)return <main className="shell"><ReadError error={error} onRetry={retry}/></main>;
   if(!data)return <NotFound/>;
@@ -160,7 +160,7 @@ function SpaceDetails(){
   return <main className="shell details-layout"><div className="details-left"><Link className="back-link" to="/spaces"><span aria-hidden="true">←</span> Back to spaces</Link><h1>{space.name}</h1><p className="details-subtitle">{prettyType(space.type)} <span>·</span> Up to {space.capacity} people</p><img className="main-photo" src={space.imageUrl} alt={`${space.name}, a ${prettyType(space.type).toLowerCase()} for creative work`}/><div className="equipment-list">{space.equipment.map((e,i)=><div className="equipment" key={`${e}-${i}`}><span className="equipment-icon" aria-hidden="true">{i%3===0?'✳':i%3===1?'▣':'♧'}</span>{e}</div>)}</div><p className="hours-intro">◷ &nbsp; Opening hours · {TIMEZONE}</p><div className="hours-list">{days.map((d,i)=><div key={d}><span>{d}</span><span>{space.openingHours[String(i+1) as keyof Space['openingHours']]?`${space.openingHours[String(i+1) as keyof Space['openingHours']]!.opensAt}–${space.openingHours[String(i+1) as keyof Space['openingHours']]!.closesAt}`:'Closed'}</span></div>)}</div></div><BookingForm space={space}/></main>;
 }
 function BookingDetails(){
-  const {token}=useParams();const {data,loading,error,retry}=useRead<{booking:Booking}>(`/api/bookings/${token}`);
+  const {token}=useParams();  const {data,loading,error,retry}=useRead<{booking:Booking}>(`/api/bookings/${token}`,{deduplicate:true});
   const [working,setWorking]=useState(false);const [cancelError,setCancelError]=useState('');
   const [dialogOpen,setDialogOpen]=useState(false);const dialog=useRef<HTMLDialogElement>(null);
   const [copied,setCopied]=useState(false);
