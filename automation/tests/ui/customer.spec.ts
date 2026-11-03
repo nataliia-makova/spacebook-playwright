@@ -35,10 +35,14 @@ test('UI-08: customer can dismiss cancellation and release a booking slot', asyn
   await myBookingsFlow.verifyTimeSlotAvailable(privateBooking, account);
 });
 
-test('UI-09: signed-out customer cannot access private booking pages', { tag: '@security' }, async ({ account, accountFlow, privateBooking }) => {
-  await accountFlow.openBookingDetails(privateBooking);
+test('UI-09: signed-out customer cannot access private booking pages', { tag: '@security' }, async ({ account, accountFlow, myBookingsFlow, privateBooking }) => {
+  await myBookingsFlow.openMyBookings();
+  await accountFlow.verifySignedIn(account.user.fullName);
+  await myBookingsFlow.openBookingDetails(privateBooking);
   await accountFlow.verifyBookingDetails(privateBooking);
   await accountFlow.signOut();
   await accountFlow.verifyGuestNavigation();
-  await accountFlow.verifyPrivatePagesRequireSignIn(privateBooking, account.user);
+  await accountFlow.verifyMyBookingsRequiresSignIn(privateBooking, account.user);
+  await accountFlow.verifyPrivateBookingInaccessible(privateBooking, account.user);
+  await accountFlow.verifySignedOutApiSessionRejected();
 });

@@ -13,8 +13,8 @@ type Fixtures = {
 };
 
 export const test = authTest.extend<Fixtures>({
-  recoveryFlow: async ({ page, account, bookingFlow, testDataManager, myBookingsFlow }, use) => {
-    const flow = new RecoveryFlow(page, account, bookingFlow, testDataManager, myBookingsFlow);
+  recoveryFlow: async ({ page, account, bookingFlow, testDataManager }, use) => {
+    const flow = new RecoveryFlow(page, account, bookingFlow, testDataManager);
     try {
       await use(flow);
     } finally {
