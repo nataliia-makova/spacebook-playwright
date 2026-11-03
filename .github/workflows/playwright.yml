@@ -1,0 +1,72 @@
+name: SpaceBook PR Tests
+
+on:
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: playwright-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  playwright:
+    name: PR API checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      CI: true
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type-check
+        run: npm run typecheck
+
+      - name: Lint TypeScript and Playwright tests
+        run: npm run lint
+
+      - name: Run backend tests
+        run: npm run test:backend
+
+      - name: Build application
+        run: npm run build
+
+      - name: Run tagged PR API tests
+        id: playwright
+        run: npx playwright test --project=api --grep @pr
+
+      - name: Upload Playwright HTML report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-report
+          path: automation/playwright-report/
+          retention-days: 7
+          if-no-files-found: warn
+
+      - name: Summarize Playwright diagnostics
+        if: always()
+        env:
+          PLAYWRIGHT_OUTCOME: ${{ steps.playwright.outcome }}
+        run: |
+          {
+            echo "### Playwright diagnostics"
+            echo "- Test step outcome: **${PLAYWRIGHT_OUTCOME}**"
+            echo "- Review the Playwright test step logs for failure details."
+            echo "- The Playwright HTML report is uploaded as the \`playwright-report\` artifact for 7 days unless the run is canceled."
+            echo "- The report may contain traces, screenshots, cookies, private booking URLs, or request data; treat it as sensitive."
+          } >> "$GITHUB_STEP_SUMMARY"

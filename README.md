@@ -2,7 +2,7 @@
 
 A small full-stack creative-space booking application. Built against [the first-release application requirements](https://github.com/makonat/spacebook-playwright/blob/docs/application-requirements/docs/application-requirements.md); the approved booking mockup supplies the ivory, dark-type and deep-green visual direction.
 
-**v1.1 implemented:** Public sign-up/sign-in, persisted sessions, protected booking ownership and My Bookings, with local build, backend, and representative desktop/mobile checks recorded below. See [Authentication & My Bookings requirements](docs/authentication-my-bookings-requirements.md). The application still has no payments, notifications, admin screens or Playwright automation framework.
+**v1.1 implemented:** Public sign-up/sign-in, persisted sessions, protected booking ownership and My Bookings, with local build, backend, and representative desktop/mobile checks recorded below. See [Authentication & My Bookings requirements](docs/authentication-my-bookings-requirements.md). The application still has no payments, notifications, or admin screens. A Playwright/TypeScript automation framework covers the browser UI, API, recovery behavior, and a full booking lifecycle.
 
 ## Requirements
 
@@ -64,8 +64,51 @@ The test-only application endpoints exist only with `APP_ENV=test`:
 - `POST /api/test-support/spaces` — create a space from the documented validated contract (201).
 - `DELETE /api/test-support/bookings/:bookingId` — permanent deletion with submission-key cascade (204, including absent IDs).
 - `DELETE /api/test-support/spaces/:spaceId` — delete an empty space (204) or refuse while **any** booking references it (409), even if cancelled.
+- `DELETE /api/test-support/users/:userId` — remove a test account after deleting its bookings (204).
 
 They always return `404` outside test mode; switching on generic frontend dev mode does not enable them. Test mode refuses the default development database path. Do not run test mode against real or shared data.
+
+## Automated testing and CI
+
+SpaceBook's Playwright/TypeScript framework contains **20 tests**: **9 UI**, **6 API**, **4 recovery/isolation**, and **1 full E2E lifecycle** (sign up → book → verify UI/API/SQLite → cancel → verify again). Six separate backend tests run with `npm run test:backend`. Playwright starts the app in test mode and resets only the disposable `data/e2e.sqlite` database. Test-scoped fixtures create isolated customers and spaces; `TestDataManager` discovers and cleans up bookings, spaces, and accounts after each test.
+
+### Test architecture
+
+- `automation/tests/`: concise business-readable specifications in `ui/`, `api/`, `mocked/`, and `e2e/`.
+- `automation/flows/`: scenario actions, `test.step()` reporting, and assertions.
+- `automation/pages/` and `automation/api/`: UI locators/actions and HTTP clients.
+- `automation/fixtures/`: test-scoped setup, authentication, and cleanup.
+- `automation/data/` and `automation/support/`: factories, test-data lifecycle, configuration, and read-only SQLite assertions.
+
+### Tags and commands
+
+Playwright's native tags select tests by purpose. They may overlap. **Only `@pr` is selected in GitHub Actions**; the other tags demonstrate focused selection and are run manually. Full regression needs no tag: just run all tests.
+
+| Tag | Purpose | Selected tests | CI |
+|---|---|---|---|
+| `@pr` | Fast PR API validation | API-01 through API-06 (6) | Automated PR checks and manual workflow dispatch |
+| `@hourly` | Example of a critical UI/API smoke suite | UI-01, UI-02, UI-06, API-03, API-06 (5) | No hourly schedule |
+| `@security` | Authentication, authorization, account isolation | UI-09, API-05, API-06, MOCK-04 (4) | Manual only |
+| `@recovery` | Error and retry behavior | MOCK-01, MOCK-02, MOCK-03 (3) | Manual only |
+
+```sh
+npm run typecheck
+npm run lint
+npm run test:backend
+npx playwright install chromium               # one-time local install for UI tests
+npx playwright test --project=api --grep @pr    # PR suite, 6 API tests
+npx playwright test --grep @hourly              # critical smoke example, 5 tests
+npx playwright test --grep @security            # 4 tests
+npx playwright test --grep @recovery            # 3 tests
+npx playwright test                             # full 20-test regression
+npx playwright test --workers=2 --repeat-each=3 # optional stability check
+```
+
+### GitHub Actions: SpaceBook PR Tests
+
+The **single** workflow, `.github/workflows/playwright.yml`, runs on **pull requests targeting `main`** and via **manual `workflow_dispatch`**. There are no push or scheduled workflows. It runs `npm ci`, typecheck, lint, six backend tests, build, and `npx playwright test --project=api --grep @pr` with one worker. Chromium is **not** installed for PR checks because only API tests are selected.
+
+The Playwright HTML report is uploaded as `playwright-report` for 7 days, with failure logs and diagnostics in GitHub Actions. Locally, inspect `automation/playwright-report` or use `npx playwright show-trace <path-to-trace.zip>`. Reports can contain screenshots, traces, cookies, private links and request data; treat them as sensitive. The configured Chromium UI tests and tagged smoke suite run only when invoked manually. All Playwright checks launch an isolated local test application rather than monitoring a live production deployment.
 
 ### Normal API
 
@@ -137,13 +180,13 @@ When a booking cannot be verified due to a connection loss, timeout or 500, the 
 
 Implemented: combined browse filters, space details/equipment/hours, whole-hour 1–4 hour bookings, server-future validation, non-overlap with adjacent intervals, real transaction locking, server-priced totals, private confirmation, idempotent replay (including cancelled bookings), cancellation, missing-resource/error/retry states, test-only creation and permanent deletion, repeatable seed, accessible form labels and focus, 10-second browser request timeouts, and responsive screens.
 
-The backend suite has six tests: an HTTP/SQLite integration test in `server/tests/api.test.ts` and five origin-validation tests in `server/tests/auth.test.ts`. Coverage includes authentication, six-character password acceptance and shorter-password rejection, ownership, persisted data, simultaneous conflicting bookings against **two SQLite connections**, replay and changed-key rejection, adjacency, cancellation, daylight-saving invalid local times, and isolated cleanup. Origin checks cover development loopback aliases, matching protocol/port, invalid/external origins, and strict test/production matching. No Playwright framework, reusable browser fixtures/mocks, CI workflow, or artificial failure routes are included in the repository.
+The backend suite has six tests: an HTTP/SQLite integration test in `server/tests/api.test.ts` and five origin-validation tests in `server/tests/auth.test.ts`. Coverage includes authentication, six-character password acceptance and shorter-password rejection, ownership, persisted data, simultaneous conflicting bookings against **two SQLite connections**, replay and changed-key rejection, adjacency, cancellation, daylight-saving invalid local times, and isolated cleanup. Origin checks cover development loopback aliases, matching protocol/port, invalid/external origins, and strict test/production matching. The current Playwright framework adds browser, API, recovery/isolation, and full UI/API/SQLite lifecycle coverage to these backend tests.
 
 **Limitations:** The local checks below cover representative journeys and are not an exhaustive release acceptance suite. Local installation needs access to npm. This source tree intentionally omits generated `node_modules` and `dist` files. Node 22's built-in SQLite implementation may emit an experimental warning; Node 24 LTS is recommended for production. The application does not include real image uploads or email ownership verification (both excluded by the spec). A lost browser sessionStorage state cannot be recovered by the server without the original private URL/key; users should keep their private confirmation link.
 
 ## Historical local verification record (2026-10-30)
 
-These results describe the earlier dependency-limited environment. The current v1.1 results are recorded below.
+These historical results predate the committed Playwright framework. Later v1.1 manual verification is recorded below; current automated coverage is documented in **Automated testing and CI**.
 
 - **Passed:** TypeScript transpilation/parser check over all 12 TS/TSX source files: 0 syntax diagnostics (this is **not** a full type check).
 - **Passed:** Node's SQLite engine applied `migrations/001_initial.sql`, inserted a booking, enforced `PRAGMA foreign_keys=ON`, and rejected deletion of a referenced space.
@@ -162,4 +205,4 @@ This historical syntax/database smoke check alone did not establish release acce
 - **Passed with mocked authentication responses:** Direct guest Account access, email-preserving mode switches, cleared passwords on mode changes, booking return destinations and restored selections, successful/failed/pending sign-out navigation, and menu closure for navigation, same-page clicks, and keyboard activation.
 - **Passed:** Empty confirmation displays **Please confirm your password.**; mismatched confirmation displays **Passwords do not match.**; matching confirmation clears the error and permits submission. Invalid confirmation blocks requests and focuses the confirmation field when earlier fields are valid.
 - **Passed against the running development API:** Signup requests from both `localhost:5173` and `127.0.0.1:5173` passed origin validation; an external origin was rejected with `403 INVALID_ORIGIN`.
-- Browser checks were performed through the connected Playwright browser tools; there is no committed Playwright test framework or CI suite. Production deployment and exhaustive release acceptance are not covered by this record.
+- At the time of this historical record, browser checks used connected Playwright browser tools, before the committed framework and CI workflow were added. Production deployment and exhaustive release acceptance are not covered by this record.

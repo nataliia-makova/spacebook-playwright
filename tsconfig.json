@@ -7,5 +7,12 @@
     "esModuleInterop": true, "skipLibCheck": true, "allowImportingTsExtensions": false,
     "types": ["node", "vite/client"], "noEmit": true
   },
-  "include": ["src", "server", "shared", "vite.config.ts"]
+  "include": [
+  "src",
+  "automation",
+  "server",
+  "shared",
+  "vite.config.ts",
+  "playwright.config.ts"
+]
 }
