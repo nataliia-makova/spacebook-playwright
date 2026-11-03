@@ -1,12 +1,12 @@
 import { test } from '../../fixtures/guest-account-fixtures.js';
 
-test('UI-01: guest filters spaces by type and capacity', async ({ catalogFlow, catalogScenario }) => {
+test('UI-01: guest filters spaces by type and capacity', { tag: '@hourly' }, async ({ catalogFlow, catalogScenario }) => {
   await catalogFlow.openCatalog();
   await catalogFlow.filterSpaces(catalogScenario);
   await catalogFlow.verifyResults(catalogScenario);
 });
 
-test('UI-02: customer signs up and stays authenticated after reload', async ({ accountFlow, myBookingsFlow, signupCredentials }) => {
+test('UI-02: customer signs up and stays authenticated after reload', { tag: '@hourly' }, async ({ accountFlow, myBookingsFlow, signupCredentials }) => {
   await accountFlow.signUp(signupCredentials);
   await accountFlow.reloadPage();
   await accountFlow.verifySignedIn(signupCredentials.fullName);

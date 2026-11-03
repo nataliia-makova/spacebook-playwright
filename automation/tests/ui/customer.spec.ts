@@ -1,6 +1,6 @@
 import { test } from '../../fixtures/auth-fixtures.js';
 
-test('UI-06: signed-in customer creates a booking with correct details', async ({ bookingFlow, bookingScenario }) => {
+test('UI-06: signed-in customer creates a booking with correct details', { tag: '@hourly' }, async ({ bookingFlow, bookingScenario }) => {
   await bookingFlow.openSpace(bookingScenario);
   await bookingFlow.selectAvailableSlot(bookingScenario);
   await bookingFlow.verifyBookingPrice(bookingScenario);
@@ -35,7 +35,7 @@ test('UI-08: customer can dismiss cancellation and release a booking slot', asyn
   await myBookingsFlow.verifyTimeSlotAvailable(privateBooking, account);
 });
 
-test('UI-09: signed-out customer cannot access private booking pages', async ({ account, accountFlow, privateBooking }) => {
+test('UI-09: signed-out customer cannot access private booking pages', { tag: '@security' }, async ({ account, accountFlow, privateBooking }) => {
   await accountFlow.openBookingDetails(privateBooking);
   await accountFlow.verifyBookingDetails(privateBooking);
   await accountFlow.signOut();

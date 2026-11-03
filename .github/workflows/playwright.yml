@@ -1,10 +1,6 @@
-name: Playwright CI
+name: SpaceBook PR Tests
 
 on:
-  push:
-    branches:
-      - main
-      - feat/playwright-framework
   pull_request:
     branches:
       - main
@@ -19,7 +15,7 @@ concurrency:
 
 jobs:
   playwright:
-    name: Playwright checks
+    name: PR API checks
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
@@ -49,12 +45,9 @@ jobs:
       - name: Build application
         run: npm run build
 
-      - name: Install Chromium and system dependencies
-        run: npx playwright install --with-deps chromium
-
-      - name: Run Playwright tests
+      - name: Run tagged PR API tests
         id: playwright
-        run: npx playwright test
+        run: npx playwright test --project=api --grep @pr
 
       - name: Upload Playwright HTML report
         if: ${{ !cancelled() }}
