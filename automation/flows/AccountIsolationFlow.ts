@@ -101,16 +101,19 @@ export class AccountIsolationFlow {
     });
   }
 
-  async verifyBookingsIsolated(scenario: AccountIsolationScenario): Promise<void> {
-    await test.step('Release customer A’s response and verify it cannot replace B’s bookings', async () => {
+  async releaseDelayedBookingsResponse(): Promise<void> {
+    await test.step('Release customer A’s delayed bookings response', async () => {
       if (!this.releaseHeldResponse || !this.heldResponseDelivered) {
-        throw new Error('Start the delayed customer A bookings request before verifying isolation.');
+        throw new Error('Start the delayed customer A bookings request before releasing the response.');
       }
-
       this.releaseHeldResponse();
       await this.heldResponseDelivered;
       if (this.delayedResponseError) throw this.delayedResponseError;
+    });
+  }
 
+  async verifyBrowserDataIsolated(scenario: AccountIsolationScenario): Promise<void> {
+    await test.step('Verify customer A’s late response cannot replace customer B’s browser data', async () => {
       const accountPage = new AccountPage(this.page);
       await expect.soft(accountPage.noBookingsHeading).toBeVisible();
       await expect.soft(accountPage.bookingRow(scenario.booking.reference)).toHaveCount(0);
@@ -130,7 +133,9 @@ export class AccountIsolationFlow {
       await expect.soft(accountPage.pageBody).not.toContainText(bookingTime);
       await expect.soft(accountPage.pageBody).not.toContainText(bookingPrice);
     });
+  }
 
+  async verifyApiDataIsolated(): Promise<void> {
     await test.step('Verify the browser’s authenticated API session returns only customer B’s bookings', async () => {
       const response = await this.page.context().request.get(
         new URL('/api/me/bookings', this.page.url()).toString()

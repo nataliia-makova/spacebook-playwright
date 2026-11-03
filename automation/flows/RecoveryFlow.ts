@@ -1,4 +1,4 @@
-import { expect, test, type Page, type Route } from '@playwright/test';
+import { expect, test, type Page, type Response as BrowserResponse, type Route } from '@playwright/test';
 import { DateTime } from 'luxon';
 import type { ApiError, Booking, BookingInput } from '../../shared/contracts.js';
 import { BookingApi } from '../api/BookingApi.js';
@@ -7,7 +7,11 @@ import { SpaceDetailsPage } from '../pages/SpaceDetailsPage.js';
 import { APP_ORIGIN } from '../support/testConfig.js';
 import { TestDataManager, type TestAccount } from '../support/TestDataManager.js';
 import { BookingFlow, type BookingScenario } from './BookingFlow.js';
-import { MyBookingsFlow } from './MyBookingsFlow.js';
+
+type CapturedBookingRequest = {
+  idempotencyKey: string;
+  payload: BookingInput;
+};
 
 export class RecoveryFlow {
   private failedRequests = 0;
@@ -15,13 +19,20 @@ export class RecoveryFlow {
   private bookingsFailureRoute: ((route: Route) => Promise<void>) | undefined;
   private readonly bookingApi: BookingApi;
   private competingBooking: Booking | undefined;
+  private conflictResponse: BrowserResponse | undefined;
+  private alternativeScenario: BookingScenario | undefined;
+  private lostResponseRoute: ((route: Route) => Promise<void>) | undefined;
+  private lostResponseRequestCount = 0;
+  private firstBookingRequest: CapturedBookingRequest | undefined;
+  private retryBookingRequest: CapturedBookingRequest | undefined;
+  private originalBooking: Booking | undefined;
+  private retryResponse: BrowserResponse | undefined;
 
   constructor(
     private readonly page: Page,
     private readonly account: TestAccount,
     private readonly bookingFlow: BookingFlow,
-    private readonly testDataManager: TestDataManager,
-    private readonly myBookingsFlow: MyBookingsFlow
+    private readonly testDataManager: TestDataManager
   ) {
     this.bookingApi = new BookingApi(account.request, APP_ORIGIN);
   }
@@ -70,15 +81,18 @@ export class RecoveryFlow {
   }
 
   async cleanup(): Promise<void> {
-    await this.stopFailingBookingsRequests();
+    try {
+      await this.stopFailingBookingsRequests();
+    } finally {
+      if (this.lostResponseRoute) {
+        await this.page.unroute('**/api/bookings', this.lostResponseRoute);
+        this.lostResponseRoute = undefined;
+      }
+    }
   }
 
-  async verifyBookingVisible(booking: Booking): Promise<void> {
-    await test.step('Verify the booking is visible after recovery', async () => {
-      await this.myBookingsFlow.verifyBookingConfirmed(booking);
-    });
-
-    await test.step('Verify the booking is unchanged in the backend', async () => {
+  async verifyBookingUnchangedInApi(booking: Booking): Promise<void> {
+    await test.step('Verify the recovered booking is unchanged in the API', async () => {
       const response = await this.bookingApi.getByConfirmation(booking);
       expect(response.status()).toBe(200);
       const body = await response.json() as { booking: Booking };
@@ -103,17 +117,24 @@ export class RecoveryFlow {
     });
   }
 
-  async attemptBooking(): Promise<void> {
-    await test.step('Submit the selected booking and verify the real conflict response', async () => {
+  async attemptBooking(scenario: BookingScenario): Promise<void> {
+    await test.step('Submit the selected booking as the customer', async () => {
       const responsePromise = this.page.waitForResponse(response =>
         response.request().method() === 'POST' &&
         new URL(response.url()).pathname === '/api/bookings'
       );
-      await this.page.getByRole('button', { name: 'Confirm booking', exact: true }).click();
-      const response = await responsePromise;
+      await new SpaceDetailsPage(this.page, scenario.space.name).confirmBooking();
+      this.conflictResponse = await responsePromise;
+    });
+  }
 
-      expect(response.status()).toBe(409);
-      const body = await response.json() as ApiError;
+  async verifyBookingConflictResponse(): Promise<void> {
+    await test.step('Verify the booking was rejected by the real conflict API', async () => {
+      if (!this.conflictResponse) {
+        throw new Error('Attempt the competing booking before verifying the conflict.');
+      }
+      expect(this.conflictResponse.status()).toBe(409);
+      const body = await this.conflictResponse.json() as ApiError;
       expect(body.error.code).toBe('BOOKING_CONFLICT');
     });
   }
@@ -128,18 +149,27 @@ export class RecoveryFlow {
     });
   }
 
-  async bookAlternativeSlot(scenario: BookingScenario): Promise<void> {
-    await test.step('Select and confirm the adjacent available booking slot', async () => {
+  async selectAlternativeSlot(scenario: BookingScenario): Promise<void> {
+    await test.step('Select an adjacent available slot', async () => {
       const alternativeStartTime = DateTime.fromFormat(
         scenario.startTime,
         'HH:mm',
         { zone: scenario.timezone }
       ).plus({ hours: scenario.durationHours }).toFormat('HH:mm');
-      const alternativeScenario = { ...scenario, startTime: alternativeStartTime };
+      this.alternativeScenario = { ...scenario, startTime: alternativeStartTime };
+      await this.bookingFlow.selectAvailableSlot(this.alternativeScenario);
+    });
+  }
 
-      await this.bookingFlow.selectAvailableSlot(alternativeScenario);
-      await this.bookingFlow.confirmBooking(alternativeScenario);
-      await this.bookingFlow.verifyBookingDetails(alternativeScenario);
+  async confirmAlternativeBooking(): Promise<void> {
+    await test.step('Confirm the alternative booking', async () => {
+      await this.bookingFlow.confirmBooking(this.requireAlternativeScenario());
+    });
+  }
+
+  async verifyAlternativeBookingDetails(): Promise<void> {
+    await test.step('Verify the alternative booking confirmation', async () => {
+      await this.bookingFlow.verifyBookingDetails(this.requireAlternativeScenario());
     });
   }
 
@@ -193,126 +223,158 @@ export class RecoveryFlow {
     });
   }
 
-  async verifyRetryAfterLostResponse(
-    scenario: BookingScenario,
-    account: TestAccount
-  ): Promise<void> {
-    type CapturedRequest = {
-      idempotencyKey: string;
-      payload: BookingInput;
-    };
+  async loseFirstBookingResponse(): Promise<void> {
+    await test.step('Simulate losing the first booking response after the server saves it', async () => {
+      if (this.lostResponseRoute) throw new Error('Booking response loss is already enabled.');
 
-    let requestCount = 0;
-    let firstRequest: CapturedRequest | undefined;
-    let retryRequest: CapturedRequest | undefined;
-    let originalBooking: Booking | undefined;
-    const bookingRoute = async (route: Parameters<Parameters<Page['route']>[1]>[0]) => {
-      const request = route.request();
-      if (request.method() !== 'POST' || new URL(request.url()).pathname !== '/api/bookings') {
-        await route.continue();
-        return;
-      }
-
-      requestCount += 1;
-      const capturedRequest = {
-        idempotencyKey: request.headers()['idempotency-key'] ?? '',
-        payload: request.postDataJSON() as BookingInput
-      };
-
-      if (requestCount === 1) {
-        firstRequest = capturedRequest;
-        const response = await route.fetch();
-        expect(response.status()).toBe(201);
-        const body = await response.json() as { booking: Booking };
-        originalBooking = body.booking;
-        await route.abort();
-        return;
-      }
-
-      if (requestCount === 2) retryRequest = capturedRequest;
-      await route.continue();
-    };
-
-    await this.page.route('**/api/bookings', bookingRoute);
-    try {
-      await test.step('Create the booking on the server and lose only its first browser response', async () => {
-        const spaceDetails = new SpaceDetailsPage(this.page, scenario.space.name);
-        const firstRequestPromise = this.page.waitForRequest(request =>
-          request.method() === 'POST' &&
-          new URL(request.url()).pathname === '/api/bookings'
-        );
-        await spaceDetails.confirmBookingButton.click();
-        await firstRequestPromise;
-
-        await expect(spaceDetails.uncertainBookingMessage).toBeVisible();
-        await expect(this.page).toHaveURL(
-          new URL(`/spaces/${scenario.space.id}`, APP_ORIGIN).toString()
-        );
-        await expect(spaceDetails.dateInput).toHaveValue(scenario.date);
-        await expect(spaceDetails.durationSelect).toHaveValue(String(scenario.durationHours));
-        await expect(spaceDetails.startTimeButton(scenario.startTime))
-          .toHaveAttribute('aria-pressed', 'true');
-        await expect(spaceDetails.retrySameBookingButton).toBeVisible();
-        expect(requestCount).toBe(1);
-        expect(firstRequest).toBeDefined();
-        expect(originalBooking).toBeDefined();
-      });
-
-      await test.step('Verify the uncertain booking was persisted before retrying', async () => {
-        const expectedPayload: BookingInput = {
-          spaceId: scenario.space.id,
-          date: scenario.date,
-          startTime: scenario.startTime,
-          durationHours: scenario.durationHours
-        };
-        expect(firstRequest?.idempotencyKey).toBeTruthy();
-        expect(firstRequest?.payload).toEqual(expectedPayload);
-        expect(originalBooking).toMatchObject({
-          spaceId: scenario.space.id,
-          customerEmail: account.user.email,
-          status: 'confirmed'
-        });
-
-        const bookingsForSpace = (await account.authApi.listBookings())
-          .filter(booking => booking.spaceId === scenario.space.id);
-        expect(bookingsForSpace).toHaveLength(1);
-        expect(bookingsForSpace[0]).toEqual(originalBooking);
-      });
-
-      await test.step('Retry with the same key and payload and verify the backend replay', async () => {
-        const retryResponsePromise = this.page.waitForResponse(response =>
-          response.request().method() === 'POST' &&
-          new URL(response.url()).pathname === '/api/bookings'
-        );
-        await this.page.getByRole('button', { name: 'Retry same booking', exact: true }).click();
-        const response = await retryResponsePromise;
-        const responseBody = await response.json() as { booking: Booking };
-
-        expect(requestCount).toBe(2);
-        expect(retryRequest).toEqual(firstRequest);
-        expect(response.status()).toBe(200);
-        expect(responseBody.booking).toEqual(originalBooking);
-      });
-
-      await test.step('Verify confirmation and ensure recovery leaves exactly one booking', async () => {
-        if (!originalBooking) {
-          throw new Error('The original booking response was not captured.');
+      this.lostResponseRoute = async (route: Route) => {
+        const request = route.request();
+        if (request.method() !== 'POST' || new URL(request.url()).pathname !== '/api/bookings') {
+          await route.continue();
+          return;
         }
 
-        await expect(this.page).toHaveURL(new URL(originalBooking.confirmationUrl).toString());
-        await this.bookingFlow.verifyRecoveredBookingDetails(scenario, originalBooking);
+        this.lostResponseRequestCount += 1;
+        const captured: CapturedBookingRequest = {
+          idempotencyKey: request.headers()['idempotency-key'] ?? '',
+          payload: request.postDataJSON() as BookingInput
+        };
 
-        const bookingsForSpace = (await account.authApi.listBookings())
-          .filter(booking => booking.spaceId === scenario.space.id);
-        expect(bookingsForSpace).toHaveLength(1);
-        expect(bookingsForSpace[0]).toEqual(originalBooking);
-        expect(await this.page.evaluate(() =>
-          sessionStorage.getItem('spacebook:uncertain-booking')
-        )).toBeNull();
+        if (this.lostResponseRequestCount === 1) {
+          this.firstBookingRequest = captured;
+          const response = await route.fetch();
+          expect(response.status()).toBe(201);
+          const body = await response.json() as { booking: Booking };
+          this.originalBooking = body.booking;
+          await route.abort();
+          return;
+        }
+
+        if (this.lostResponseRequestCount === 2) this.retryBookingRequest = captured;
+        await route.continue();
+      };
+
+      await this.page.route('**/api/bookings', this.lostResponseRoute);
+    });
+  }
+
+  async submitBookingWithLostResponse(scenario: BookingScenario): Promise<void> {
+    await test.step('Submit the booking while the first response is interrupted', async () => {
+      if (!this.lostResponseRoute) {
+        throw new Error('Enable the lost-response simulation before booking.');
+      }
+      const firstRequestPromise = this.page.waitForRequest(request =>
+        request.method() === 'POST' &&
+        new URL(request.url()).pathname === '/api/bookings'
+      );
+      await new SpaceDetailsPage(this.page, scenario.space.name).confirmBooking();
+      await firstRequestPromise;
+    });
+  }
+
+  async verifyUncertainBookingState(scenario: BookingScenario): Promise<void> {
+    await test.step('Verify the customer sees a recoverable uncertain booking state', async () => {
+      const details = new SpaceDetailsPage(this.page, scenario.space.name);
+      await expect(details.uncertainBookingMessage).toBeVisible();
+      await expect(this.page).toHaveURL(
+        new URL(`/spaces/${scenario.space.id}`, APP_ORIGIN).toString()
+      );
+      await expect(details.dateInput).toHaveValue(scenario.date);
+      await expect(details.durationSelect).toHaveValue(String(scenario.durationHours));
+      await expect(details.startTimeButton(scenario.startTime))
+        .toHaveAttribute('aria-pressed', 'true');
+      await expect(details.retrySameBookingButton).toBeVisible();
+      expect(this.lostResponseRequestCount).toBe(1);
+      expect(this.firstBookingRequest).toBeDefined();
+      expect(this.originalBooking).toBeDefined();
+    });
+  }
+
+  async verifyOriginalBookingPersisted(scenario: BookingScenario): Promise<void> {
+    await test.step('Verify the interrupted booking was stored exactly once', async () => {
+      const original = this.requireOriginalBooking();
+      const expectedPayload: BookingInput = {
+        spaceId: scenario.space.id,
+        date: scenario.date,
+        startTime: scenario.startTime,
+        durationHours: scenario.durationHours
+      };
+      expect(this.firstBookingRequest?.idempotencyKey).toBeTruthy();
+      expect(this.firstBookingRequest?.payload).toEqual(expectedPayload);
+      expect(original).toMatchObject({
+        spaceId: scenario.space.id,
+        customerEmail: this.account.user.email,
+        status: 'confirmed'
       });
-    } finally {
-      await this.page.unroute('**/api/bookings', bookingRoute);
+      await this.expectOnlyOriginalBookingPersisted(scenario);
+    });
+  }
+
+  async retrySameBooking(scenario: BookingScenario): Promise<void> {
+    await test.step('Retry the same booking from the browser', async () => {
+      this.requireOriginalBooking();
+      const retryResponsePromise = this.page.waitForResponse(response =>
+        response.request().method() === 'POST' &&
+        new URL(response.url()).pathname === '/api/bookings'
+      );
+      await new SpaceDetailsPage(this.page, scenario.space.name).retrySameBookingButton.click();
+      this.retryResponse = await retryResponsePromise;
+    });
+  }
+
+  async verifyIdempotentRecovery(): Promise<void> {
+    await test.step('Verify the retry used the same submission and returned the original booking', async () => {
+      const original = this.requireOriginalBooking();
+      if (!this.retryResponse) throw new Error('Retry the booking before verifying idempotency.');
+      expect(this.lostResponseRequestCount).toBe(2);
+      expect(this.retryBookingRequest).toEqual(this.firstBookingRequest);
+      expect(this.retryResponse.status()).toBe(200);
+      const body = await this.retryResponse.json() as { booking: Booking };
+      expect(body.booking).toEqual(original);
+    });
+  }
+
+  async verifyRecoveredBookingDetails(scenario: BookingScenario): Promise<void> {
+    await test.step('Verify the original booking confirmation is restored', async () => {
+      const original = this.requireOriginalBooking();
+      await expect(this.page).toHaveURL(new URL(original.confirmationUrl).toString());
+      await this.bookingFlow.verifyRecoveredBookingDetails(scenario, original);
+    });
+  }
+
+  async verifyOnlyOneBookingPersisted(scenario: BookingScenario): Promise<void> {
+    await test.step('Verify the successful retry did not create a duplicate booking', async () => {
+      await this.expectOnlyOriginalBookingPersisted(scenario);
+    });
+  }
+
+  async verifyRetryStateCleared(): Promise<void> {
+    await test.step('Verify no uncertain booking state remains in the browser', async () => {
+      expect(await this.page.evaluate(() =>
+        sessionStorage.getItem('spacebook:uncertain-booking')
+      )).toBeNull();
+    });
+  }
+
+  private requireOriginalBooking(): Booking {
+    if (!this.originalBooking) {
+      throw new Error('Submit a booking with a lost response before checking its persistence.');
     }
+    return this.originalBooking;
+  }
+
+  private requireAlternativeScenario(): BookingScenario {
+    if (!this.alternativeScenario) {
+      throw new Error('Select an alternative slot before confirming or verifying it.');
+    }
+    return this.alternativeScenario;
+  }
+
+  private async expectOnlyOriginalBookingPersisted(scenario: BookingScenario): Promise<void> {
+    const bookingsForSpace = (await this.account.authApi.listBookings())
+      .filter(booking => booking.spaceId === scenario.space.id);
+    expect(bookingsForSpace).toHaveLength(1);
+    expect(bookingsForSpace[0]).toEqual(this.requireOriginalBooking());
   }
 
   private async stopFailingBookingsRequests(): Promise<void> {

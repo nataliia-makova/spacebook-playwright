@@ -7,8 +7,6 @@ import { BookingDetailsPage } from '../pages/BookingDetailsPage.js';
 import { APP_ORIGIN } from '../support/testConfig.js';
 
 export class AccountFlow {
-  private privateBookingPath: string | undefined;
-
   constructor(private readonly page: Page) {}
 
   async signUp(credentials: SignupInput): Promise<void> {
@@ -125,18 +123,6 @@ export class AccountFlow {
     });
   }
 
-  async openBookingDetails(booking: Booking): Promise<void> {
-    await test.step('Open the booking details from My Bookings', async () => {
-      const accountPage = new AccountPage(this.page);
-      await this.page.goto('/spaces');
-      await expect(accountPage.accountName(booking.customerName)).toBeVisible();
-      await accountPage.openMyBookings();
-      await expect(accountPage.myBookingsHeading).toBeVisible();
-      await accountPage.bookingDetailsLink(booking.reference).click();
-      this.privateBookingPath = new URL(this.page.url()).pathname;
-    });
-  }
-
   async verifyBookingDetails(booking: Booking): Promise<void> {
     await test.step('Verify the selected booking details', async () => {
       const detailsPage = new BookingDetailsPage(this.page);
@@ -162,23 +148,21 @@ export class AccountFlow {
     });
   }
 
-  async verifyPrivatePagesRequireSignIn(
-    booking: Booking,
-    account: User
-  ): Promise<void> {
-    await test.step('Verify signed-out users cannot access private booking data', async () => {
-      if (!this.privateBookingPath) {
-        throw new Error('Open the customer booking details before verifying private-page protection.');
-      }
-
+  async verifyMyBookingsRequiresSignIn(booking: Booking, account: User): Promise<void> {
+    await test.step('Verify My Bookings hides private data after sign-out', async () => {
       const accountPage = new AccountPage(this.page);
       await this.page.goto('/my-bookings');
       await expect(accountPage.signInPrompt).toBeVisible();
+      await expect(accountPage.accountMenu).toHaveCount(0);
       await expect(this.page.getByText(booking.reference, { exact: true })).toHaveCount(0);
       await expect(this.page.getByText(account.fullName, { exact: true })).toHaveCount(0);
       await expect(this.page.getByText(account.email, { exact: true })).toHaveCount(0);
+    });
+  }
 
-      await this.page.goto(this.privateBookingPath);
+  async verifyPrivateBookingInaccessible(booking: Booking, account: User): Promise<void> {
+    await test.step('Verify the signed-out browser cannot open the private booking URL', async () => {
+      await this.page.goto(new URL(booking.confirmationUrl).pathname);
       await expect(
         this.page.getByRole('heading', { name: 'We couldn’t find that page.' }),
         'The private booking route should be unavailable after signout.'
@@ -186,7 +170,11 @@ export class AccountFlow {
       await expect(this.page.getByText(booking.reference, { exact: true })).toHaveCount(0);
       await expect(this.page.getByText(account.fullName, { exact: true })).toHaveCount(0);
       await expect(this.page.getByText(account.email, { exact: true })).toHaveCount(0);
+    });
+  }
 
+  async verifySignedOutApiSessionRejected(): Promise<void> {
+    await test.step('Verify the signed-out session is rejected by the authentication API', async () => {
       const response = await this.page.context().request.get(
         new URL('/api/auth/me', this.page.url()).toString()
       );
@@ -197,6 +185,7 @@ export class AccountFlow {
         .toBe('AUTHENTICATION_REQUIRED');
     });
   }
+
 }
 
 async function expectInvalidCredentials(response: APIResponse): Promise<void> {
