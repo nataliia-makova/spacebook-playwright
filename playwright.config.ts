@@ -1,6 +1,6 @@
 
 import { defineConfig, devices } from '@playwright/test';
-import { APP_ORIGIN } from './automation/support/testConfig.js';
+import { APP_ORIGIN, E2E_DB_PATH } from './automation/support/testConfig.js';
 
 export default defineConfig({
   testDir: './automation/tests',
@@ -41,7 +41,7 @@ webServer: {
   },
   env: {
     APP_ENV: 'test',
-    DB_PATH: './data/e2e.sqlite',
+    DB_PATH: E2E_DB_PATH,
     APP_ORIGIN,
     PORT: '3001',
   },
@@ -53,6 +53,7 @@ webServer: {
       testMatch: [
         '**/ui/**/*.spec.ts',
         '**/mocked/**/*.spec.ts',
+        '**/e2e/**/*.spec.ts',
       ],
       use: {
         ...devices['Desktop Chrome'],
