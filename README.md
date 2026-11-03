@@ -1,49 +1,88 @@
 # SpaceBook
 
-A full-stack creative-space booking app and Playwright/TypeScript QA automation portfolio. Customers can browse spaces, sign up or sign in, book available time slots, view their bookings, and cancel reservations. The app uses React, Express, and SQLite.
+**Playwright + TypeScript QA Automation Portfolio**
 
-## Run the app locally
+SpaceBook is a purpose-built full-stack web application used to demonstrate a Playwright automation framework. The main focus of this repository is test automation: UI, API, end-to-end, and controlled-failure testing.
 
-**Requirements:** Node.js 22.13+ and npm. No external database or services are needed.
+The application uses React, Express, and SQLite. It runs locally and requires no external database or cloud services.
+
+## 1. Try the web application manually
+
+**Prerequisites:** Node.js 22.13+ and npm.
+
+Clone the repository and start SpaceBook:
 
 ```bash
+git clone https://github.com/makonat/spacebook-playwright.git
+cd spacebook-playwright
 npm ci
 npm run dev
 ```
 
-Open **http://127.0.0.1:5173/spaces** (or `http://localhost:5173/spaces`).
+Open **http://127.0.0.1:5173/spaces** in your browser.
 
-The command starts the Vite frontend on port **5173** and Express API on port **3001**, prepares the development database (`data/dev.sqlite`), and seeds example spaces. It does **not** erase existing development bookings. Stop both processes with Ctrl+C.
+You can now:
 
-Configuration is optional for local development; copy `.env.example` to `.env` if you need to override `APP_ENV`, `DB_PATH`, `PORT`, or `APP_ORIGIN`.
+1. Browse available creative spaces as a guest.
+2. Sign up for a new account or sign in.
+3. Select an available date and time and book a space.
+4. Open My Bookings to view your reservations.
+5. Cancel a reservation and verify its status.
 
-## Run the tests
+The command automatically starts the Vite frontend and Express backend, initializes the development SQLite database (`data/dev.sqlite`), and seeds example spaces. Your bookings persist across normal application restarts.
 
-**The app does not need to be running first.** Playwright starts its own frontend and backend, resets the isolated `data/e2e.sqlite` database, and cleans up per-test data. Stop any manually running server on ports 5173/3001 before launching Playwright.
+**Stop the application using Ctrl+C** when finished.
+
+Configuration is optional for local development. Copy `.env.example` to `.env` only if you need to override `APP_ENV`, `DB_PATH`, `PORT`, or `APP_ORIGIN`.
+
+## 2. Run the Playwright automation tests
+
+**Important:** Stop the manually running application before starting the tests.
+
+Playwright automatically starts its own frontend and backend and uses an isolated, disposable test database (`data/e2e.sqlite`). The tests do not modify your manual development bookings.
+
+Install the browser (first time only):
 
 ```bash
-npx playwright install chromium               # one-time setup for browser tests
-npx playwright test                             # all 20 tests: API + UI + recovery + E2E
-npx playwright test --project=api               # six API tests
-npx playwright test --project=chromium          # 14 browser tests
-npx playwright test --project=api --grep @pr    # six PR API checks
-npx playwright test --grep @hourly              # five illustrative smoke tests
-npx playwright test --grep @security            # four security-focused tests
-npx playwright test --grep @recovery            # three recovery tests
+npx playwright install chromium
 ```
 
-Useful additional checks:
+Run the complete suite:
+
+```bash
+npx playwright test
+```
+
+The suite contains **20 Playwright tests**, covering UI functionality, API behavior, account isolation, error recovery, and a complete booking journey.
+
+Run specific test groups:
+
+```bash
+npx playwright test --project=api
+npx playwright test --project=chromium
+npx playwright test --grep @security
+npx playwright test --grep @recovery
+```
+
+Open the HTML report:
+
+```bash
+npx playwright show-report automation/playwright-report
+```
+
+Playwright captures traces and screenshots for failed tests. The browser suite uses Chromium and the `Europe/Warsaw` timezone.
+
+## 3. Additional quality checks
 
 ```bash
 npm run typecheck
 npm run lint
-npm run test:backend                            # six Node/SQLite backend tests
+npm run test:backend
 npm run build
-npx playwright test --list                      # list selected tests without running
-npx playwright show-report automation/playwright-report
+npx playwright test --list
 ```
 
-Playwright records an HTML report in `automation/playwright-report/`; failure traces and screenshots are retained when tests fail. The UI suite uses Chromium and the `Europe/Warsaw` timezone.
+For framework design, test coverage, CI configuration, and project structure, see the sections below.
 
 ## Test coverage and structure
 
