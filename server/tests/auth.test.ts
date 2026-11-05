@@ -30,8 +30,8 @@ test('development rejects missing, malformed, external, and mismatched origins',
   assert.throws(()=>assertSameOrigin(request('http://127.0.0.1:5173'),{mode:'development',origin:'http://spaces.example:5173'}),invalidOrigin);
 });
 
-test('test and production require an exact match even for loopback addresses',()=>{
-  for(const mode of ['test','production']){
+test('local, test and production require an exact match even for loopback addresses',()=>{
+  for(const mode of ['local','test','production']){
     assert.throws(()=>assertSameOrigin(request('http://127.0.0.1:5173'),{mode,origin:'http://localhost:5173'}),invalidOrigin);
   }
 });

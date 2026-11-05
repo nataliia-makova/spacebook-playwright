@@ -24,16 +24,16 @@ This file is for assistants and coding agents modifying the **application or Pla
 | `playwright.config.ts` | Projects, isolated test server and reports |
 | `.github/workflows/playwright.yml` | One PR-only CI workflow (API tests tagged `@pr`) |
 
-The app is **React + Vite** on port **5173**, **Express** on port **3001**, and **SQLite** via Node's built-in `node:sqlite`. Vite proxies `/api` to the backend. No external services are required.
+The app uses **React built with Vite**, **one Express process serving UI and API on port 3001**, and **one SQLite file** (`data/spacebook.sqlite`) via Node's built-in `node:sqlite`. `npm run local` builds and starts the single application. No external services are required.
 
 ## Application invariants
 
-- Preserve server-owned authentication and authorization: HttpOnly cookie sessions and account ownership for booking details, listing, and cancellation. Enforce origin validation for normal API mutations: strict matching in test/production, with same-protocol-and-port loopback aliases allowed in development. Test-support endpoints are exempt from this origin check and are available only in isolated test mode.
+- Preserve server-owned authentication and authorization: HttpOnly cookie sessions and account ownership for booking details, listing, and cancellation. Enforce origin validation for normal API mutations. Test-support routes are local-only (or available in the legacy isolated backend test mode); they require a loopback connection and reject foreign origins. Do not expose the local server publicly.
 - Booking creation uses a UUID `Idempotency-Key`: identical retries return the original booking; changed payloads or conflicting slots are rejected. Never silently bypass this contract.
 - All customer-facing booking times are in `Europe/Warsaw`; timestamps stored in SQLite are UTC. Use Luxon to handle timezone/DST boundaries.
 - Prices are EUR **integer cents**; compute totals on the server rather than trusting client input.
 - Use shared Zod schemas/contracts from `shared/contracts.ts` for API validation. Database changes belong in additive `migrations/` files, not ad hoc schema resets.
-- `/api/test-support/*` routes are for isolated `APP_ENV=test` only. Do not expose test-only controls in production.
+- `/api/test-support/*` routes are available only to loopback clients for the local automation application (and the legacy isolated backend test mode). Production/development modes cannot access them. The guarded readiness endpoint verifies the local mode, port, origin and database. Do not publish the local server.
 - Never commit or expose real credentials, production data, session cookies, or private confirmation tokens. Use synthetic accounts and booking data in test fixtures. Treat Playwright reports, screenshots, and traces as potentially sensitive artifacts.
 
 ## Playwright design rules
@@ -47,13 +47,13 @@ The app is **React + Vite** on port **5173**, **Express** on port **3001**, and 
 - Use **`TestDataManager`** for automatic cleanup; discover browser-created bookings/accounts during teardown. Avoid global mutable state, shared users, order-dependent tests, and unnecessary abstractions.
 - Use real API/backend behavior whenever the scenario requires it. Mock or intercept only the deliberate failure under test (for example, the first 500 or an aborted browser response). Keep routes scoped and reliably release/remove them.
 - Prefer accessible role/label locators and Playwright auto-waiting over sleeps or arbitrary timeouts. Never weaken assertions just to make CI green.
-- `automation/support/BookingDatabase.ts` is a **read-only** test helper; keep database verification isolated to the Playwright test database.
+- `automation/support/BookingDatabase.ts` is a **read-only** test helper for the shared local SQLite file; it must never write, migrate or reset the database.
 
 ## Test data, execution, and safety
 
-`playwright.config.ts` starts an isolated test server with `APP_ENV=test`, `DB_PATH=./data/e2e.sqlite`, and `APP_ORIGIN=http://127.0.0.1:5173`. It resets only the configured disposable test database at startup. Playwright uses `chromium` for `ui/`, `mocked/`, and `e2e/`, and `api` for `api/`.
+Playwright uses `APP_ENV=local`, `DB_PATH=./data/spacebook.sqlite`, and `APP_ORIGIN=http://127.0.0.1:3001`. It starts `npm run local` on demand and reuses a guarded, verified existing local server outside CI. The browser and API projects use the same origin. Fixtures create unique resources and delete them after each test; **do not reset the database at startup**. Sequential extension/CLI use is supported; do not run independent test suites concurrently.
 
-**Warning:** Running `npm run db:reset` manually deletes the configured local SQLite database. Without environment overrides, this is `data/dev.sqlite`, including existing development bookings; a custom `DB_PATH` changes the target. Never reset production or shared data. Stop manually running servers on ports 5173/3001 before Playwright execution.
+**Warning:** `npm run db:reset` deletes all records in the configured local SQLite file, including manual bookings. Stop the app before using it. If an existing `.env` still contains old settings, update it to match `.env.example`. The single-mode localhost setup is intentionally local-only; unlike the original application requirements, its test-support endpoints are also available for manual use on loopback. Do not deploy this server.
 
 **Test selection and CI:**
 - `@pr` — fast API checks executed by the PR workflow.

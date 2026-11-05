@@ -6,56 +6,23 @@ SpaceBook is a purpose-built full-stack web application used to demonstrate a Pl
 
 The application uses React, Express, and SQLite. It runs locally and requires no external database or cloud services.
 
-## 1. Try the web application manually
+## 1. Run the Playwright tests
 
 **Prerequisites:** Node.js 22.13+ and npm.
-
-Clone the repository and start SpaceBook:
 
 ```bash
 git clone https://github.com/nataliia-makova/spacebook-playwright.git
 cd spacebook-playwright
 npm ci
-npm run dev
-```
-
-Open **http://127.0.0.1:5173/spaces** in your browser.
-
-You can now:
-
-1. Browse available creative spaces as a guest.
-2. Sign up for a new account or sign in.
-3. Select an available date and time and book a space.
-4. Open My Bookings to view your reservations.
-5. Cancel a reservation and verify its status.
-
-The command automatically starts the Vite frontend and Express backend, initializes the development SQLite database (`data/dev.sqlite`), and seeds example spaces. Your bookings persist across normal application restarts.
-
-**Stop the application using Ctrl+C** when finished.
-
-Configuration is optional for local development. Copy `.env.example` to `.env` only if you need to override `APP_ENV`, `DB_PATH`, `PORT`, or `APP_ORIGIN`.
-
-## 2. Run the Playwright automation tests
-
-**Important:** Stop the manually running application before starting the tests.
-
-Playwright automatically starts its own frontend and backend and uses an isolated, disposable test database (`data/e2e.sqlite`). The tests do not modify your manual development bookings.
-
-Install the browser (first time only):
-
-```bash
 npx playwright install chromium
-```
-
-Run the complete suite:
-
-```bash
 npx playwright test
 ```
 
-The suite contains **20 Playwright tests**, covering UI functionality, API behavior, account isolation, error recovery, and a complete booking journey.
+**You do not need to start the web app first.** Playwright builds and launches it automatically if it is not running. Both the VS Code Playwright extension and the CLI reuse the same **verified local app** at `http://127.0.0.1:3001` when it is already running. Use the extension and CLI **sequentially**, not as simultaneous independent suites. CI starts a fresh server.
 
-Run specific test groups:
+The 20 tests cover UI, API, authorization, controlled errors/retries and an E2E booking lifecycle. Fixtures create unique test resources and clean them up. **Playwright never automatically resets the database.** A force-terminated test run may leave test-created records behind.
+
+Run specific tests:
 
 ```bash
 npx playwright test --project=api
@@ -64,13 +31,29 @@ npx playwright test --grep @security
 npx playwright test --grep @recovery
 ```
 
-Open the HTML report:
+View the HTML report:
 
 ```bash
 npx playwright show-report automation/playwright-report
 ```
 
-Playwright captures traces and screenshots for failed tests. The browser suite uses Chromium and the `Europe/Warsaw` timezone.
+## 2. Explore the application manually (optional)
+
+To use SpaceBook without Playwright:
+
+```bash
+npm run local
+```
+
+Open **http://127.0.0.1:3001/spaces** to browse, sign up, book, view My Bookings or cancel. Stop the server with **Ctrl+C**.
+
+Vite **builds** the React frontend; the Express process **serves both** the frontend and API on port 3001. The single SQLite file is `data/spacebook.sqlite`; migrations and example spaces are applied/seeded on startup. Existing records persist across restarts. No second running Vite server or external database is required.
+
+If an older `.env` exists, update it to match `.env.example`: `APP_ENV=local`, `DB_PATH=./data/spacebook.sqlite`, `PORT=3001` and `APP_ORIGIN=http://127.0.0.1:3001`. If Playwright cannot reuse a server, ensure the old server has stopped and launch `npm run local` again. The guarded readiness URL is `/api/test-support/ready`; Playwright only recognizes the expected local port, origin, mode and database.
+
+**Local-only safety:** Test-support endpoints create and permanently delete records. They are accessible only on loopback in this local application; never expose port 3001 publicly or deploy this configuration. Fixture cleanup targets test-owned records. Your manual records normally persist, but concurrent test runs against the same database are not supported.
+
+To deliberately erase **all local accounts and bookings**, stop the server and then run `npm run db:reset`. This command is destructive and is **never part of Playwright startup**.
 
 ## 3. Additional quality checks
 
@@ -81,8 +64,6 @@ npm run test:backend
 npm run build
 npx playwright test --list
 ```
-
-For framework design, test coverage, CI configuration, and project structure, see the sections below.
 
 ## Test coverage and structure
 
@@ -122,4 +103,4 @@ Booking times use **Europe/Warsaw**; prices are **EUR integer cents**. Sessions 
 
 The repository has **one** GitHub Actions workflow: [`.github/workflows/playwright.yml`](.github/workflows/playwright.yml). It runs on **pull requests to `main`** and via **manual dispatch**. The workflow runs typecheck, lint, backend tests, build, and the six API tests tagged `@pr`; it uploads the Playwright HTML report. No hourly or nightly workflows are scheduled—`@hourly`, `@security`, and `@recovery` are demonstration tags for manual filtering.
 
-**Test safety:** Playwright's startup resets only the disposable `data/e2e.sqlite`, not the development database. **Running `npm run db:reset` manually deletes the configured local SQLite database**—by default, `data/dev.sqlite`, including existing bookings; a custom `DB_PATH` changes the target. Never reset production or shared data. Reports and traces may contain private booking URLs, cookies, or customer details; keep them private.
+**Test safety:** The app and Playwright share `data/spacebook.sqlite` on loopback port 3001. Playwright never resets it; per-test cleanup deletes test-owned resources. Crashes can leave leftovers. **`npm run db:reset` deletes all data in the configured local SQLite file**, including manual bookings: stop the server and use it only deliberately. Test-support routes are enabled for localhost testing, not public hosting; this is an intentional local-portfolio configuration distinct from the original isolated-test-mode requirements. Reports and traces may contain private booking URLs, cookies, or customer details; keep them private.

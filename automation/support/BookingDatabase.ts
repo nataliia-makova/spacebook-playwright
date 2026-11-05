@@ -1,6 +1,6 @@
 import { DatabaseSync } from 'node:sqlite';
 import path from 'node:path';
-import { E2E_DB_PATH } from './testConfig.js';
+import { LOCAL_DB_PATH } from './testConfig.js';
 
 export type BookingDatabaseRecord = {
   id: string;
@@ -18,9 +18,9 @@ export type BookingDatabaseRecord = {
   cancelledAt: string | null;
 };
 
-/** Read the same isolated SQLite database used by the Playwright web server. */
+/** Read the shared local SQLite file without modifying its contents. */
 export function readBookingsForSpace(spaceId: string): BookingDatabaseRecord[] {
-  const database = new DatabaseSync(path.resolve(E2E_DB_PATH), { readOnly: true });
+  const database = new DatabaseSync(path.resolve(LOCAL_DB_PATH), { readOnly: true });
   try {
     const query = [
       'SELECT id, reference, space_id AS spaceId, user_id AS userId,',
