@@ -7,7 +7,7 @@
     "node": ">=22.13.0"
   },
   "scripts": {
-    "dev": "npm run db:prepare && concurrently -k \"npm:dev:api\" \"npm:dev:web\"",
+    "dev": "npm run local",
     "dev:api": "tsx watch server/index.ts",
     "dev:web": "vite --host 127.0.0.1",
     "db:migrate": "tsx server/scripts/migrate.ts",
@@ -18,7 +18,8 @@
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "build": "npm run typecheck && tsc -p tsconfig.server.json && vite build",
     "start": "node dist-server/server/index.js",
-    "test:backend": "tsx --test server/tests/*.test.ts"
+    "test:backend": "tsx --test server/tests/*.test.ts",
+    "local": "npm run build && npm start"
   },
   "dependencies": {
     "dotenv": "^17.2.3",
