@@ -245,8 +245,21 @@ export function createApp(db:Database, mode=config.mode) {
     res.json({booking:bookingView(booking)});
   });
 
-  // Intentionally completely unavailable unless APP_ENV=test; no secret token or admin UI.
+  // Test data management is limited to the local, loopback-only application.
+  // The legacy test mode remains available for isolated backend integration tests.
   const test=express.Router();
+  test.get('/ready',(_req,res)=>{
+    const dbFile=(db.prepare('PRAGMA database_list').all() as {name:string;file:string}[])
+      .find(entry=>entry.name==='main')?.file;
+    const expected=path.resolve('./data/spacebook.sqlite');
+    if (mode!=='local' || config.mode!=='local' || config.port!==3001 ||
+        config.origin!=='http://127.0.0.1:3001' || config.dbPath!==expected ||
+        !dbFile || path.resolve(dbFile)!==config.dbPath) {
+      res.status(404).json({error:{code:'NOT_FOUND',message:'This resource could not be found.'}});
+      return;
+    }
+    res.json({status:'ready'});
+  });
   test.post('/spaces',(req,res) => {
     noQuery(req);
     const data=parse(createSpaceSchema,req.body);
@@ -288,7 +301,22 @@ export function createApp(db:Database, mode=config.mode) {
     });
     res.status(204).end();
   });
-  app.use('/api/test-support',(req,res,next) => mode==='test' ? test(req,res,next) : res.status(404).json({error:{code:'NOT_FOUND',message:'This resource could not be found.'}}));
+  app.use('/api/test-support',(req,res,next)=>{
+    // Local-only, never exposed on a public interface. Browser cross-origin
+    // mutations must not be able to invoke these destructive test endpoints.
+    const remote=req.socket.remoteAddress;
+    const loopback=remote==='127.0.0.1' || remote==='::1' || remote==='::ffff:127.0.0.1';
+    const origin=req.headers.origin;
+    const localHost=req.headers.host===new URL(config.origin).host;
+    const allowed=(mode==='local'||mode==='test') && loopback &&
+      (!origin || origin===config.origin) &&
+      (mode!=='local' || (config.mode==='local' && localHost));
+    if(!allowed){
+      res.status(404).json({error:{code:'NOT_FOUND',message:'This resource could not be found.'}});
+      return;
+    }
+    test(req,res,next);
+  });
   app.use('/api',(req,res)=>res.status(404).json({error:{code:'NOT_FOUND',message:'This resource could not be found.'}}));
 
   const root=path.resolve(process.cwd(),'dist');
