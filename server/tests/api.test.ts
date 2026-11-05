@@ -59,6 +59,8 @@ test('auth, booking ownership, concurrency, legacy migration and isolated cleanu
     assert.equal((await request(normal.base,'/api/spaces/not-an-id')).status,400);
     assert.equal((await request(normal.base,`/api/spaces/${randomUUID()}`)).status,404);
     assert.equal((await request(normal.base,'/api/test-support/spaces','POST',{})).status,404);
+    assert.equal((await request(normal.base,'/api/test-support/ready')).status,404);
+    assert.equal((await request(isolated.base,'/api/test-support/ready')).status,404);
     assert.equal((await request(normal.base,'/api/test-support/users/'+randomUUID(),'DELETE')).status,404);
     assert.equal((await request(normal.base,'/api/me/bookings')).status,401);
     assert.equal((await request(normal.base,'/api/bookings','POST',slotData({id:space.id} as Space),'',randomUUID())).status,401);
