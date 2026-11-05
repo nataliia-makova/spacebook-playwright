@@ -6,7 +6,48 @@ SpaceBook is a purpose-built full-stack web application used to demonstrate a Pl
 
 The application uses React, Express, and SQLite. It runs locally and requires no external database or cloud services.
 
-## 1. Run the Playwright tests
+## Test coverage and structure
+
+**20 Playwright tests:** 9 UI scenarios, 6 API scenarios, 4 controlled-failure/account-isolation scenarios, and 1 complete signup → booking → cancellation E2E journey that checks UI, API, and SQLite. Six additional backend tests live in `server/tests/`.
+
+```text
+automation/
+  tests/
+    ui/       Browser functionality (UI-01–UI-09)
+    api/      Booking API behavior (API-01–API-06)
+    mocked/   Recovery, concurrency and account isolation (MOCK-01–MOCK-04)
+    e2e/      Signup → booking → cancellation (E2E-01)
+  fixtures/   Test-scoped accounts, scenarios, and cleanup
+  flows/      Business actions, assertions, and Playwright test.step()
+  pages/      Page objects and UI locators
+  api/        Typed API clients
+  data/       Test-data factories
+  support/    TestDataManager and read-only SQLite verification
+```
+
+Specs remain business-readable: they call flow methods; flows hold assertions, page objects hold UI interactions, and API clients hold HTTP details. Fixtures create isolated data, and `TestDataManager` performs cleanup. See **[AGENTS.md](AGENTS.md)** for architecture and coding-agent conventions.
+
+## Screenshots
+
+These are real screenshots of the application and the Playwright HTML report, captured on 5 November 2026.
+
+### Full test report
+
+![Playwright HTML report showing 20 passed tests and no failures](docs/screenshots/playwright-report-20-passed.png)
+
+### Test steps and reporting
+
+The expanded `UI-06` test shows scenario-level `test.step()` actions, timing, and the relationship between the spec, flow, and page-object layers.
+
+![Playwright UI-06 booking test steps in the HTML report](docs/screenshots/playwright-test-steps.png)
+
+### Application under test
+
+The SpaceBook booking page, with selectable dates, available time slots, and pricing.
+
+![SpaceBook Daylight Studio booking page](docs/screenshots/spacebook-booking-page.png)
+
+## Run the Playwright tests
 
 **Prerequisites:** Node.js 22.13+ and npm.
 
@@ -37,7 +78,7 @@ View the HTML report:
 npx playwright show-report automation/playwright-report
 ```
 
-## 2. Explore the application manually (optional)
+## Explore the application manually (optional)
 
 To use SpaceBook without Playwright:
 
@@ -55,7 +96,7 @@ If an older `.env` exists, update it to match `.env.example`: `APP_ENV=local`, `
 
 To deliberately erase **all local accounts and bookings**, stop the server and then run `npm run db:reset`. This command is destructive and is **never part of Playwright startup**.
 
-## 3. Additional quality checks
+## Additional quality checks
 
 ```bash
 npm run typecheck
@@ -64,27 +105,6 @@ npm run test:backend
 npm run build
 npx playwright test --list
 ```
-
-## Test coverage and structure
-
-**20 Playwright tests:** 9 UI scenarios, 6 API scenarios, 4 controlled-failure/account-isolation scenarios, and 1 complete signup → booking → cancellation E2E journey that checks UI, API, and SQLite. Six additional backend tests live in `server/tests/`.
-
-```text
-automation/
-  tests/
-    ui/       Browser functionality (UI-01–UI-09)
-    api/      Booking API behavior (API-01–API-06)
-    mocked/   Recovery, concurrency and account isolation (MOCK-01–MOCK-04)
-    e2e/      Signup → booking → cancellation (E2E-01)
-  fixtures/   Test-scoped accounts, scenarios, and cleanup
-  flows/      Business actions, assertions, and Playwright test.step()
-  pages/      Page objects and UI locators
-  api/        Typed API clients
-  data/       Test-data factories
-  support/    TestDataManager and read-only SQLite verification
-```
-
-Specs remain business-readable: they call flow methods; flows hold assertions, page objects hold UI interactions, and API clients hold HTTP details. Fixtures create isolated data, and `TestDataManager` performs cleanup. See **[AGENTS.md](AGENTS.md)** for architecture and coding-agent conventions.
 
 ## Application structure
 
